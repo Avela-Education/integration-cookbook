@@ -3,7 +3,7 @@ name = "integration-cookbook"
 version = "0.1.0"
 description = "Production-ready integration patterns for the Avela Education Platform"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Avela Education", email = "api-support@avela.org"}
