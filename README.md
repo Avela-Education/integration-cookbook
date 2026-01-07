@@ -59,6 +59,7 @@ Programmatic access to Avela data and functionality. Browse all recipes in the [
 **Available Recipes:**
 - [**Fetch All Applicants (Python)**](api/applicants-fetch-all-python/) - Retrieve and export applicant data with automatic pagination
 - [**Update Forms from CSV (Python)**](api/forms-update-csv-python/) - Bulk update form answers by reading from a CSV file
+- [**Download Form Files (Python)**](api/forms-download-files-python/) - Batch download file attachments from forms
 
 ### Data Processing _(coming soon)_
 File-based integration for bulk operations
@@ -90,16 +91,17 @@ End-to-end integration solutions
 - **Automated Notifications** - Email/SMS workflows
 - **Bulk Data Migration** - Move data between systems
 
-## 🟢🟡🔴 Browse by Complexity
+## Browse by Complexity
 
-### 🟢 Beginner (Get started in 15 minutes)
+### Beginner (Get started in 15 minutes)
 - [Fetch All Applicants (Python)](api/applicants-fetch-all-python/) - Basic data retrieval and CSV export
+- [Download Form Files (Python)](api/forms-download-files-python/) - Batch download file attachments
 
-### 🟡 Intermediate (Production-ready patterns)
+### Intermediate (Production-ready patterns)
 - [Update Forms from CSV (Python)](api/forms-update-csv-python/) - Bulk form updates with error handling
 - **Webhook Processing** - Event-driven integration _(coming soon)_
 
-### 🔴 Advanced (Complete solutions) _(coming soon)_
+### Advanced (Complete solutions) _(coming soon)_
 - **Real-time Data Sync** - Bidirectional synchronization
 - **Custom Analytics Pipeline** - Build dashboards
 - **Multi-system Integration** - Complex workflows
@@ -201,21 +203,12 @@ send_email(
 )
 ```
 
-## 🗺️ Roadmap
+## Roadmap
 
-### Current Examples
-- ✅ Fetch All Applicants (Python)
-- ✅ Update Forms from CSV (Python)
+See our [Roadmap](ROADMAP.md) for planned examples and features, including:
+- Node.js versions of existing recipes
+- Webhook handlers
+- Third-party integrations (Salesforce, Google Sheets)
+- Complete use case examples
 
-### Coming Soon
-- 🚧 Node.js versions of existing recipes
-- 🚧 Webhook handlers (Node.js, Python)
-- 🚧 Salesforce integration
-- 🚧 Google Sheets automation
-- 🚧 Complete use case examples
-
-### Future Additions
-- More language implementations (Ruby, PHP, Java)
-- No-code integration guides (Zapier, Make.com)
-- Advanced patterns (caching, bulk operations)
-- Testing utilities and mocks
+Want to request a new example? [Create an issue](https://github.com/Avela-Education/integration-cookbook/issues/new?template=example_request.md)!

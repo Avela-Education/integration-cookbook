@@ -1,0 +1,10 @@
+{
+  "client_id": "your_client_id_here",
+  "client_secret": "your_client_secret_here",
+  "environment": "prod",
+  "form_ids": [
+    "form-uuid-1",
+    "form-uuid-2"
+  ],
+  "output_dir": "downloaded_files"
+}

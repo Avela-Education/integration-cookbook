@@ -6,7 +6,7 @@ Production-ready code examples for integrating with the Avela API.
 
 Each recipe is a self-contained example showing how to accomplish a specific integration task. All recipes include complete working code, configuration templates, and comprehensive documentation.
 
-## 📚 Available Recipes
+## Available Recipes
 
 ### [Fetch All Applicants (Python)](applicants-fetch-all-python/)
 Retrieve applicant data from Avela with automatic pagination and export to CSV.
@@ -17,7 +17,7 @@ Retrieve applicant data from Avela with automatic pagination and export to CSV.
 - Exporting data to CSV format
 - Error handling and retry logic
 
-**Complexity:** 🟢 Beginner | **Language:** Python 3.8+
+**Complexity:** Beginner | **Language:** Python 3.8+
 
 ---
 
@@ -30,11 +30,24 @@ Bulk update form answers by reading changes from a CSV file.
 - Batching API requests for efficiency
 - Handling different question types
 
-**Complexity:** 🟡 Intermediate | **Language:** Python 3.10+
+**Complexity:** Intermediate | **Language:** Python 3.10+
 
 ---
 
-## 🚧 Coming Soon
+### [Download Form Files (Python)](forms-download-files-python/)
+Batch download file attachments from forms using pre-signed URLs.
+
+**What you'll learn:**
+- Using the batch forms/files endpoint
+- Working with pre-signed download URLs
+- Streaming file downloads efficiently
+- Organizing downloaded files by form and question
+
+**Complexity:** Beginner | **Language:** Python 3.8+
+
+---
+
+## Coming Soon
 
 - **Applicants Fetch All (Node.js)** - Node.js version of applicant retrieval
 - **Forms Update CSV (Node.js)** - Node.js version of CSV form updates
