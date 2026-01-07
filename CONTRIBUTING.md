@@ -36,11 +36,32 @@ category/subcategory/example-name/language/
 ### Code Style
 
 #### Python
-- Follow [PEP 8](https://pep8.org/) style guide
+
+We use [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Before submitting a PR, ensure your code passes all checks:
+
+```bash
+# Install uv (if not already installed)
+# See: https://docs.astral.sh/uv/getting-started/installation/
+
+# Install dev dependencies
+uv sync --group dev
+
+# Run linter
+uv run ruff check .
+
+# Auto-fix issues
+uv run ruff check --fix .
+
+# Format code
+uv run ruff format .
+```
+
+**Style requirements:**
+- Line length: 90 characters maximum
+- Single quotes for strings
 - Use meaningful variable names
 - Add type hints where appropriate
 - Use docstrings for functions and classes
-- Line length: 90 characters maximum
 
 #### JavaScript/Node.js
 - Follow [JavaScript Standard Style](https://standardjs.com/)
@@ -184,12 +205,14 @@ git commit -m "Update REST API documentation"
 
 - [ ] Example follows directory structure
 - [ ] README is comprehensive and clear
-- [ ] Code follows style guidelines
+- [ ] Code passes linting (`uv run ruff check .` and `uv run ruff format --check .`)
 - [ ] No credentials or sensitive data
 - [ ] Dependencies are documented
 - [ ] Example has been tested
 - [ ] Related documentation updated
 - [ ] PR description explains the changes
+
+**Note:** CI will automatically run ruff on your PR. Ensure linting passes before requesting review.
 
 ## 🐛 Reporting Issues
 
