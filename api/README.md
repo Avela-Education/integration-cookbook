@@ -43,7 +43,7 @@ Batch download file attachments from forms using pre-signed URLs.
 - Streaming file downloads efficiently
 - Organizing downloaded files by form and question
 
-**Complexity:** Beginner | **Language:** Python 3.8+
+**Complexity:** Beginner | **Language:** Python 3.10+
 
 ---
 
