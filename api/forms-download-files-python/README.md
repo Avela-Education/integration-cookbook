@@ -15,7 +15,7 @@ Perfect for backing up form attachments, migrating files, or processing uploaded
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Avela API credentials (Client ID and Client Secret)
 - Form IDs for the forms containing file uploads
 - `pip` package manager (included with Python 3.4+)
@@ -394,5 +394,5 @@ Found a way to improve this example? We welcome contributions! See our [Contribu
 ---
 
 **Complexity Level:** Beginner
-**Language:** Python 3.8+
+**Language:** Python 3.10+
 **API Version:** v2

@@ -280,7 +280,7 @@ def download_file(url: str, output_path: Path) -> bool:
 def download_all_files(
     form_responses: list[dict],
     output_dir: str | None = None,
-) -> dict:
+) -> tuple[dict, str]:
     """
     Download all files from form responses.
 
@@ -291,7 +291,7 @@ def download_all_files(
         output_dir: Base directory for downloads (default: timestamped folder)
 
     Returns:
-        Dictionary with download statistics
+        Tuple of (stats dict, output directory path)
     """
     # Create output directory with timestamp
     if output_dir is None:
@@ -314,8 +314,9 @@ def download_all_files(
 
     for form_response in form_responses:
         # Check if this form had an error
+        # Note: status may be string '200' or int 200 depending on API serialization
         status = form_response.get('status')
-        if status != '200':
+        if str(status) != '200':
             print(f'\nForm response error (status {status}), skipping')
             continue
 
@@ -383,7 +384,7 @@ def download_all_files(
                     print('FAILED')
                     stats['failed'] += 1
 
-    return stats
+    return stats, output_dir
 
 
 def print_summary(stats: dict, output_dir: str) -> None:
@@ -448,10 +449,9 @@ def main():
     form_responses = get_form_files(access_token, environment, form_ids)
 
     # Step 4: Download all files
-    stats = download_all_files(form_responses, output_dir)
+    stats, output_path = download_all_files(form_responses, output_dir)
 
     # Step 5: Print summary
-    output_path = output_dir or f'form_files_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     print_summary(stats, output_path)
 
     print('\nIntegration completed successfully!')
