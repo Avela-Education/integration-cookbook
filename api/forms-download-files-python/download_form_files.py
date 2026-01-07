@@ -16,7 +16,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import requests
 
@@ -186,9 +186,7 @@ def get_form_files(
     }
 
     # form_id parameter is comma-delimited
-    params = {
-        'form_id': ','.join(form_ids)
-    }
+    params = {'form_id': ','.join(form_ids)}
 
     print(f'\nFetching file information for {len(form_ids)} form(s)...')
 
@@ -239,7 +237,7 @@ def sanitize_filename(filename: str) -> str:
     # Limit length
     if len(filename) > 200:
         name, ext = os.path.splitext(filename)
-        filename = name[:200 - len(ext)] + ext
+        filename = name[: 200 - len(ext)] + ext
 
     return filename
 
@@ -439,7 +437,7 @@ def main():
     # Optional: custom output directory
     output_dir = config.get('output_dir')
 
-    print(f'\nConfiguration loaded:')
+    print('\nConfiguration loaded:')
     print(f'  Environment: {environment}')
     print(f'  Form IDs: {len(form_ids)} form(s)')
 

@@ -16,7 +16,6 @@ import csv
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # We use the 'requests' library for making HTTP calls
 # Install it with: pip install requests
