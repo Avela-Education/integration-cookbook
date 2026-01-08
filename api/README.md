@@ -17,7 +17,7 @@ Retrieve applicant data from Avela with automatic pagination and export to CSV.
 - Exporting data to CSV format
 - Error handling and retry logic
 
-**Complexity:** Beginner | **Language:** Python 3.8+
+**Complexity:** Beginner | **Language:** Python 3.10+
 
 ---
 
@@ -63,7 +63,7 @@ Batch download file attachments from forms using pre-signed URLs.
    - [Request access](https://avela.org/api-access) if you don't have credentials
 
 2. **Development Environment**
-   - Python 3.8+ or Node.js 16+ (depending on example)
+   - Python 3.10+ or Node.js 16+ (depending on example)
    - Basic knowledge of REST APIs and OAuth2
 
 ### Quick Start
@@ -75,7 +75,7 @@ Batch download file attachments from forms using pre-signed URLs.
 
 ## API Versions
 
-- **REST API v2** - Current version (all examples use v2)
+- **Customer API v2** - Current version (all examples use v2)
 
 ## Common Patterns
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the **Avela Integration Cookbook** - a collection of production-ready integration examples and patterns for the Avela Education Platform. It serves as a reference library for developers building integrations using Avela's REST API, webhooks, and CSV processing.
+This is the **Avela Integration Cookbook** - a collection of production-ready integration examples and patterns for the Avela Education Platform. It serves as a reference library for developers building integrations using Avela's Customer API v2, webhooks, and CSV processing.
 
 ## Repository Structure
 
@@ -165,7 +165,7 @@ Before submitting or updating examples:
 
 ## API Versions and Environments
 
-**Current API Version:** v2 (all examples use REST API v2)
+**Current API Version:** v2 (all examples use Customer API v2)
 
 **Environment Mapping:**
 - `dev` - Development environment

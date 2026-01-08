@@ -1,18 +1,18 @@
-# Customer API - Update Form Answers from CSV
+# Update Form Answers from CSV - Python
 
-This example demonstrates how to update form answers in bulk by reading updates from a CSV file using the Avela Customer API.
+This example demonstrates how to update form answers in bulk by reading updates from a CSV file using the Avela Customer API v2.
 
 ## Overview
 
 This integration script shows you how to:
 1. Authenticate with the Avela API using OAuth2 client credentials
 2. Read form update data from a CSV file
-3. Update form answers by question key using the Customer API
+3. Update form answers by question key using the Customer API v2
 4. Handle different question types (FreeText, Email, PhoneNumber, etc.)
 
-## Why Use the Customer API?
+## Why Use the Customer API v2?
 
-This example uses the **Customer API** (`/api/rest/v2/forms/{id}/questions`) instead of the Forms Service API because it:
+This example uses the **Customer API v2** (`/api/rest/v2/forms/{id}/questions`) instead of the Forms Service API because it:
 - **Simpler workflow** - Update answers directly by question key without fetching templates
 - **No schema version issues** - Handles form template versions internally
 - **Batch updates** - Update multiple questions in a single API call
@@ -63,7 +63,7 @@ cp config.example.json config.json
 {
   "client_id": "your_client_id_here",
   "client_secret": "your_client_secret_here",
-  "environment": "uat"
+  "environment": "prod"
 }
 ```
 
@@ -104,10 +104,10 @@ python form_update_client.py
 
 ```
 ================================================================================
-AVELA CUSTOMER API - UPDATE FORM ANSWERS FROM CSV
+AVELA CUSTOMER API v2 - UPDATE FORM ANSWERS FROM CSV
 ================================================================================
 
-Authenticating with Avela API (uat)...
+Authenticating with Avela API (prod)...
 ✓ Authentication successful! Token expires in 86400 seconds.
 
 ✓ Read 3 updates from CSV file
@@ -140,7 +140,7 @@ Total: 3
 
 1. **Loads Configuration** - Reads your API credentials from `config.json`
 
-2. **Authenticates** - Uses OAuth2 client credentials flow to get an access token for the Customer API
+2. **Authenticates** - Uses OAuth2 client credentials flow to get an access token
 
 3. **Reads CSV** - Parses the `sample_updates.csv` file and validates the format
 
@@ -154,7 +154,7 @@ Total: 3
 
 ## API Endpoint Used
 
-This example uses the Customer API endpoint:
+This example uses the Customer API v2 endpoint:
 
 ### Update Form Questions
 ```
@@ -304,10 +304,16 @@ for form_id, form_updates in tqdm(updates_by_form.items(), desc="Processing form
 
 ## Additional Resources
 
-- **Customer API Documentation:** Contact your Avela representative
+- **Customer API v2 Documentation:** Contact your Avela representative
 - **Avela Developer Portal:** See other examples in this repository
 - **Integration Support:** Contact your Avela integration support team
 
 ## License
 
 MIT License - See LICENSE file for details
+
+---
+
+**Complexity Level:** Intermediate
+**Language:** Python 3.10+
+**API Version:** v2

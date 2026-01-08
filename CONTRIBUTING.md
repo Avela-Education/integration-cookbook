@@ -87,7 +87,7 @@ Brief description of what this example demonstrates (2-3 sentences).
 
 ## Prerequisites
 - Avela API credentials
-- Python 3.8+ / Node.js 16+ / etc.
+- Python 3.10+ / Node.js 16+ / etc.
 - Any other specific requirements
 
 ## Installation

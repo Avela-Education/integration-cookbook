@@ -45,7 +45,7 @@ python form_update_client.py
 
 | Method | Use When | Best For | Example |
 |--------|----------|----------|---------|
-| **REST API** | Real-time data access | Custom apps, dashboards | [Fetch applicants](api/applicants-fetch-all-python/) |
+| **Customer API v2** | Real-time data access | Custom apps, dashboards | [Fetch applicants](api/applicants-fetch-all-python/) |
 | **CSV Import/Export** | Bulk operations | Data migration, reports | [Update forms](api/forms-update-csv-python/) |
 | **Webhooks** | Event-driven | Real-time notifications | Coming soon |
 | **Third-party Tools** | No-code integration | Zapier, Make.com | Coming soon |

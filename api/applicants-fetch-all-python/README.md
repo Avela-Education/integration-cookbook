@@ -6,7 +6,7 @@ A comprehensive Python script demonstrating how to authenticate with the Avela A
 
 This example shows how to:
 - Authenticate using OAuth2 client credentials
-- Fetch applicants from the Avela REST API v2
+- Fetch applicants from the Avela Customer API v2
 - Handle automatic pagination for large datasets
 - Export data to CSV format
 - Display formatted console output
@@ -15,7 +15,7 @@ Perfect for generating reports, data analysis, or migrating applicant data.
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Avela API credentials (Client ID and Client Secret)
 - `pip` package manager (included with Python 3.4+)
 
@@ -290,7 +290,7 @@ source ./venv/bin/activate
 rm -rf venv  # On Windows: rmdir /s venv
 
 # Create with specific Python version
-python3.9 -m venv venv  # Use your desired Python 3.8+ version
+python3.10 -m venv venv  # Use Python 3.10 or higher
 
 # Activate and reinstall dependencies
 source venv/bin/activate
@@ -383,5 +383,5 @@ Found a way to improve this example? We welcome contributions! See our [Contribu
 ---
 
 **Complexity Level:** 🟢 Beginner
-**Language:** Python 3.8+
+**Language:** Python 3.10+
 **API Version:** v2

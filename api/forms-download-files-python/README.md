@@ -91,16 +91,12 @@ pip install -r requirements.txt
 cp config.example.json config.json
 ```
 
-2. Edit `config.json` with your credentials and form IDs:
+2. Edit `config.json` with your credentials:
 ```json
 {
   "client_id": "your_client_id_here",
   "client_secret": "your_client_secret_here",
   "environment": "prod",
-  "form_ids": [
-    "123e4567-e89b-12d3-a456-426614174000",
-    "987fcdeb-51a2-3b4c-d5e6-f78901234567"
-  ],
   "output_dir": "downloaded_files"
 }
 ```
@@ -109,23 +105,39 @@ cp config.example.json config.json
 - `client_id` - Your OAuth2 client ID (provided by Avela)
 - `client_secret` - Your OAuth2 client secret (keep secure!)
 - `environment` - Target environment: `prod`, `qa`, `uat`, or `dev`
-- `form_ids` - Array of form UUIDs to download files from (max 100)
 - `output_dir` - (Optional) Custom output directory name
+
+3. Create a form IDs file (one UUID per line):
+```bash
+cp form_ids.example.txt form_ids.txt
+```
+
+Example `form_ids.txt`:
+```
+# Lines starting with # are comments
+123e4567-e89b-12d3-a456-426614174000
+987fcdeb-51a2-3b4c-d5e6-f78901234567
+```
 
 ## Usage
 
 ```bash
+# Pass form IDs file as argument
+python download_form_files.py form_ids.txt
+
+# Or run without argument to be prompted
 python download_form_files.py
 ```
 
 ## What This Example Does
 
-1. **Loads Configuration** - Reads credentials and form IDs from `config.json`
-2. **Authenticates** - Obtains an OAuth2 access token (valid for 24 hours)
-3. **Fetches File Metadata** - Calls the batch endpoint to get all file information
-4. **Downloads Files** - Iterates through responses and downloads each file
-5. **Organizes Output** - Saves files in `output_dir/form_id/question_key/filename`
-6. **Displays Summary** - Shows download statistics
+1. **Loads Configuration** - Reads credentials from `config.json`
+2. **Loads Form IDs** - Reads form IDs from the specified text file
+3. **Authenticates** - Obtains an OAuth2 access token (valid for 24 hours)
+4. **Fetches File Metadata** - Calls the batch endpoint to get all file information
+5. **Downloads Files** - Iterates through responses and downloads each file
+6. **Organizes Output** - Saves files in `output_dir/form_<form_id>/question_key/filename`
+7. **Displays Summary** - Shows download statistics
 
 ## Expected Output
 
@@ -137,6 +149,7 @@ AVELA API INTEGRATION - FORM FILES DOWNLOAD
 
 Configuration loaded:
   Environment: prod
+  Form IDs file: form_ids.txt
   Form IDs: 2 form(s)
 
 Authenticating with Avela API (prod)...
@@ -180,13 +193,13 @@ Files are organized by form ID and question key:
 
 ```
 form_files_20251107_143022/
-├── 123e4567-e89b-12d3-a456-426614174000/
+├── form_123e4567-e89b-12d3-a456-426614174000/
 │   ├── proof_of_residency/
 │   │   ├── utility_bill.pdf
 │   │   └── lease_agreement.pdf
 │   └── birth_certificate/
 │       └── birth_cert_scan.jpg
-└── 987fcdeb-51a2-3b4c-d5e6-f78901234567/
+└── form_987fcdeb-51a2-3b4c-d5e6-f78901234567/
     └── proof_of_residency/
         └── drivers_license.png
 ```
@@ -261,26 +274,27 @@ The API returns responses for each form:
 **Solution:**
 ```bash
 cp config.example.json config.json
-# Edit config.json with your credentials and form IDs
+# Edit config.json with your credentials
 ```
 
-### "form_ids must be a non-empty list"
-**Problem:** The `form_ids` field is missing or empty
+### "Form IDs file not found"
+**Problem:** The specified form IDs file doesn't exist
 
-**Solution:** Add form IDs to your config.json:
-```json
-{
-  "form_ids": ["your-form-uuid-here"]
-}
+**Solution:**
+```bash
+cp form_ids.example.txt form_ids.txt
+# Edit form_ids.txt with your form UUIDs (one per line)
 ```
+
+### "No form IDs found"
+**Problem:** The form IDs file is empty or contains only comments
+
+**Solution:** Add form UUIDs to your form IDs file (one per line)
 
 ### "Maximum 100 form IDs allowed"
 **Problem:** Too many form IDs in one request
 
-**Solution:** Split your form IDs into batches of 100 or fewer:
-```python
-# Run the script multiple times with different form ID batches
-```
+**Solution:** Split your form IDs into separate files and run the script multiple times
 
 ### "No download URL"
 **Problem:** Some files show "No download URL (status: X)"
