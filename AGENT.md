@@ -168,6 +168,25 @@ Most users should use `prod` unless specifically testing.
 
 ---
 
+## Lessons Learned
+
+### OAuth2 Audience Format
+
+When authenticating with the Avela API, the `audience` parameter must include the `/v1/graphql` suffix:
+
+```python
+# Correct audience format
+audience = f'https://{env}.api.apply.avela.org/v1/graphql'  # For non-prod
+audience = 'https://api.apply.avela.org/v1/graphql'         # For prod
+```
+
+Without the `/v1/graphql` suffix, authentication will fail with:
+```
+{"error":"access_denied","error_description":"Service not enabled within domain: ..."}
+```
+
+---
+
 ## Additional Resources
 
 - Each recipe has a detailed README.md with full documentation
