@@ -19,6 +19,12 @@ credentials.json
 output/
 exports/
 reports/
+downloaded_files/
+form_files_*/
+
+# Form IDs files (may contain real data)
+form_ids.txt
+!form_ids.example.txt
 
 # Python
 __pycache__/

@@ -33,7 +33,6 @@ def load_config(config_path: str = 'config.json') -> dict:
     - client_id: Your OAuth2 client ID (provided by Avela)
     - client_secret: Your OAuth2 client secret (provided by Avela)
     - environment: Which Avela environment to connect to (prod, qa, uat, dev)
-    - form_ids: List of form IDs to download files from
 
     Args:
         config_path: Path to the configuration JSON file
@@ -56,23 +55,52 @@ def load_config(config_path: str = 'config.json') -> dict:
         config = json.load(f)
 
     # Validate required fields
-    required_fields = ['client_id', 'client_secret', 'environment', 'form_ids']
+    required_fields = ['client_id', 'client_secret', 'environment']
     missing_fields = [field for field in required_fields if field not in config]
 
     if missing_fields:
         print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
         sys.exit(1)
 
-    # Validate form_ids
-    if not isinstance(config['form_ids'], list) or len(config['form_ids']) == 0:
-        print('Error: form_ids must be a non-empty list of form ID strings')
-        sys.exit(1)
-
-    if len(config['form_ids']) > 100:
-        print('Error: Maximum 100 form IDs allowed per request')
-        sys.exit(1)
-
     return config
+
+
+def load_form_ids(file_path: str) -> list[str]:
+    """
+    Load form IDs from a text file (one ID per line).
+
+    Args:
+        file_path: Path to the form IDs file
+
+    Returns:
+        List of form ID strings
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+    """
+    path = Path(file_path)
+
+    if not path.exists():
+        print(f"Error: Form IDs file '{file_path}' not found!")
+        sys.exit(1)
+
+    with open(path, encoding='utf-8') as f:
+        # Read lines, strip whitespace, skip empty lines and comments
+        form_ids = [
+            line.strip()
+            for line in f
+            if line.strip() and not line.strip().startswith('#')
+        ]
+
+    if not form_ids:
+        print(f"Error: No form IDs found in '{file_path}'")
+        sys.exit(1)
+
+    if len(form_ids) > 100:
+        print(f'Error: Maximum 100 form IDs allowed per request (found {len(form_ids)})')
+        sys.exit(1)
+
+    return form_ids
 
 
 # =============================================================================
@@ -363,8 +391,8 @@ def download_all_files(
                     stats['skipped'] += 1
                     continue
 
-                # Organize files: output_dir/form_id/question_key/filename
-                file_path = base_path / form_id / question_key / filename
+                # Organize files: output_dir/form_<form_id>/question_key/filename
+                file_path = base_path / f'form_{form_id}' / question_key / filename
 
                 # Handle duplicate filenames by appending a number
                 if file_path.exists():
@@ -372,7 +400,9 @@ def download_all_files(
                     counter = 1
                     while file_path.exists():
                         new_filename = f'{name}_{counter}{ext}'
-                        file_path = base_path / form_id / question_key / new_filename
+                        file_path = (
+                            base_path / f'form_{form_id}' / question_key / new_filename
+                        )
                         counter += 1
 
                 print(f'    - {filename}...', end=' ', flush=True)
@@ -412,16 +442,43 @@ def print_summary(stats: dict, output_dir: str) -> None:
 # =============================================================================
 
 
+def get_form_ids_file() -> str:
+    """
+    Get the form IDs file path from command line args or prompt.
+
+    Returns:
+        Path to the form IDs file
+    """
+    # Check command line arguments
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+
+    # Prompt the user
+    print('Enter path to form IDs file (one ID per line):')
+    file_path = input('> ').strip()
+
+    if not file_path:
+        print('Error: No file path provided')
+        sys.exit(1)
+
+    return file_path
+
+
 def main():
     """
     Main execution function.
 
     This orchestrates the entire workflow:
     1. Load configuration
-    2. Authenticate with the API
-    3. Fetch form file metadata
-    4. Download all files
-    5. Display summary
+    2. Load form IDs from file
+    3. Authenticate with the API
+    4. Fetch form file metadata
+    5. Download all files
+    6. Display summary
+
+    Usage:
+        python download_form_files.py <form_ids_file>
+        python download_form_files.py  # prompts for file path
     """
     print('=' * 60)
     print('AVELA API INTEGRATION - FORM FILES DOWNLOAD')
@@ -433,25 +490,29 @@ def main():
     client_id = config['client_id']
     client_secret = config['client_secret']
     environment = config['environment']
-    form_ids = config['form_ids']
 
     # Optional: custom output directory
     output_dir = config.get('output_dir')
 
+    # Step 2: Get form IDs file and load form IDs
+    form_ids_file = get_form_ids_file()
+    form_ids = load_form_ids(form_ids_file)
+
     print('\nConfiguration loaded:')
     print(f'  Environment: {environment}')
+    print(f'  Form IDs file: {form_ids_file}')
     print(f'  Form IDs: {len(form_ids)} form(s)')
 
-    # Step 2: Authenticate
+    # Step 3: Authenticate
     access_token = get_access_token(client_id, client_secret, environment)
 
-    # Step 3: Get form file metadata
+    # Step 4: Get form file metadata
     form_responses = get_form_files(access_token, environment, form_ids)
 
-    # Step 4: Download all files
+    # Step 5: Download all files
     stats, output_path = download_all_files(form_responses, output_dir)
 
-    # Step 5: Print summary
+    # Step 6: Print summary
     print_summary(stats, output_path)
 
     print('\nIntegration completed successfully!')
@@ -462,9 +523,11 @@ if __name__ == '__main__':
     Entry point when script is run directly.
 
     Usage:
-        python download_form_files.py
+        python download_form_files.py form_ids.txt
+        python download_form_files.py  # prompts for file path
 
-    Make sure you have created a 'config.json' file with your credentials
-    and form IDs first!
+    Make sure you have:
+    1. Created 'config.json' with your credentials
+    2. Created a form IDs file with one UUID per line
     """
     main()

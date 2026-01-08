@@ -1,0 +1,6 @@
+# Form IDs file - one UUID per line
+# Lines starting with # are comments
+# Empty lines are ignored
+
+123e4567-e89b-12d3-a456-426614174000
+987fcdeb-51a2-3b4c-d5e6-f78901234567
