@@ -28,7 +28,7 @@ If this is a new example or enhancement:
 ## Testing
 Describe how you tested this:
 - Environment: (e.g., macOS, Ubuntu, Windows)
-- Language version: (e.g., Python 3.9)
+- Language version: (e.g., Python 3.10)
 - API environment: (e.g., UAT, prod)
 
 ## Screenshots / Output
