@@ -7,7 +7,7 @@ A comprehensive Python script demonstrating how to retrieve file upload question
 This example shows how to:
 - Authenticate using OAuth2 client credentials
 - Call the `GET /forms/files` endpoint to get file metadata and download URLs
-- Batch retrieve files across multiple forms (up to 100 per request)
+- Automatically batch requests for any number of forms (100 per API call)
 - Download files using pre-signed URLs
 - Organize downloaded files by form ID and question
 
@@ -134,7 +134,7 @@ python download_form_files.py
 1. **Loads Configuration** - Reads credentials from `config.json`
 2. **Loads Form IDs** - Reads form IDs from the specified text file
 3. **Authenticates** - Obtains an OAuth2 access token (valid for 24 hours)
-4. **Fetches File Metadata** - Calls the batch endpoint to get all file information
+4. **Fetches File Metadata** - Automatically batches API calls (100 forms per request)
 5. **Downloads Files** - Iterates through responses and downloads each file
 6. **Organizes Output** - Saves files in `output_dir/form_<form_id>/question_key/filename`
 7. **Displays Summary** - Shows download statistics
@@ -209,7 +209,7 @@ form_files_20251107_143022/
 ### The Get Form Files Endpoint
 
 The `GET /rest/v2/forms/files` endpoint is a batch endpoint that:
-- Accepts a comma-delimited list of form IDs (up to 100)
+- Accepts a comma-delimited list of form IDs
 - Returns file upload questions from those forms
 - Includes pre-signed download URLs for each uploaded file
 - Returns a 207 Multi-Status response for batch results
@@ -291,11 +291,6 @@ cp form_ids.example.txt form_ids.txt
 
 **Solution:** Add form UUIDs to your form IDs file (one per line)
 
-### "Maximum 100 form IDs allowed"
-**Problem:** Too many form IDs in one request
-
-**Solution:** Split your form IDs into separate files and run the script multiple times
-
 ### "No download URL"
 **Problem:** Some files show "No download URL (status: X)"
 
@@ -371,7 +366,7 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 ### Get Form Files
 - **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/forms/files`
 - **Method:** GET
-- **Parameters:** `form_id` (comma-delimited, max 100)
+- **Parameters:** `form_id` (comma-delimited list of form UUIDs)
 - **Purpose:** Retrieve file metadata and pre-signed download URLs
 - **Response:** 207 Multi-Status with per-form results
 

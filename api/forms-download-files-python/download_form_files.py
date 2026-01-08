@@ -21,6 +21,25 @@ from urllib.parse import urljoin
 import requests
 
 # =============================================================================
+# UTILITIES
+# =============================================================================
+
+
+def chunk_list(items: list, size: int = 100) -> list[list]:
+    """
+    Split a list into chunks of specified size.
+
+    Args:
+        items: List to split
+        size: Maximum size of each chunk (default: 100)
+
+    Returns:
+        List of lists, each containing up to 'size' items
+    """
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+# =============================================================================
 # CONFIGURATION LOADING
 # =============================================================================
 
@@ -94,10 +113,6 @@ def load_form_ids(file_path: str) -> list[str]:
 
     if not form_ids:
         print(f"Error: No form IDs found in '{file_path}'")
-        sys.exit(1)
-
-    if len(form_ids) > 100:
-        print(f'Error: Maximum 100 form IDs allowed per request (found {len(form_ids)})')
         sys.exit(1)
 
     return form_ids
@@ -506,8 +521,18 @@ def main():
     # Step 3: Authenticate
     access_token = get_access_token(client_id, client_secret, environment)
 
-    # Step 4: Get form file metadata
-    form_responses = get_form_files(access_token, environment, form_ids)
+    # Step 4: Get form file metadata (batch by 100 - API limit)
+    form_responses = []
+    chunks = chunk_list(form_ids, 100)
+
+    if len(chunks) > 1:
+        print(f'\nProcessing {len(form_ids)} forms in {len(chunks)} batches...')
+
+    for i, chunk in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            print(f'\n--- Batch {i}/{len(chunks)} ({len(chunk)} forms) ---')
+        responses = get_form_files(access_token, environment, chunk)
+        form_responses.extend(responses)
 
     # Step 5: Download all files
     stats, output_path = download_all_files(form_responses, output_dir)
