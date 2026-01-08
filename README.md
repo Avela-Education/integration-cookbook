@@ -91,6 +91,14 @@ See the [Security Guide](SECURITY.md) for best practices.
 
 Using an AI assistant (ChatGPT, Claude, Copilot, etc.) to help with setup? See [AGENT.md](AGENT.md) for instructions that keep your credentials secure.
 
+**Example prompt:**
+```
+Looking at this cookbook, can you download documents for the form IDs listed at
+api/forms-download-files-python/form_ids.txt? Please be descriptive at the end
+of the steps you took to do this in case I want to do it manually. Let me know
+what files were downloaded and where they are. Be sure to read AGENT.md warnings.
+```
+
 ## 📖 Documentation & Resources
 
 - [**API Reference**](https://docs.avela.org/api/v2) - Complete API documentation
