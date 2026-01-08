@@ -87,6 +87,10 @@ All API examples use OAuth2 client credentials flow:
 
 See the [Security Guide](SECURITY.md) for best practices.
 
+## 🤖 AI Assistant Setup Help
+
+Using an AI assistant (ChatGPT, Claude, Copilot, etc.) to help with setup? See [AGENT.md](AGENT.md) for instructions that keep your credentials secure.
+
 ## 📖 Documentation & Resources
 
 - [**API Reference**](https://docs.avela.org/api/v2) - Complete API documentation
