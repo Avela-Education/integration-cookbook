@@ -1,30 +1,18 @@
 # Update Form Answers from CSV - Python
 
-This example demonstrates how to update form answers in bulk by reading updates from a CSV file using the Avela Customer API v2.
-
-## Overview
-
-This integration script shows you how to:
-1. Authenticate with the Avela API using OAuth2 client credentials
-2. Read form update data from a CSV file
-3. Update form answers by question key using the Customer API v2
-4. Handle different question types (FreeText, Email, PhoneNumber, etc.)
-
-## Why Use the Customer API v2?
-
-This example uses the **Customer API v2** (`/api/rest/v2/forms/{id}/questions`) instead of the Forms Service API because it:
-- **Simpler workflow** - Update answers directly by question key without fetching templates
-- **No schema version issues** - Handles form template versions internally
-- **Batch updates** - Update multiple questions in a single API call
-- **Same authentication** - Uses the same OAuth2 credentials as other Avela APIs
+Update form answers in bulk by reading from a CSV file.
 
 ## Prerequisites
 
-Before running this example, you'll need:
-
-- **Python 3.10 or higher** installed on your system
+- **Python 3.10 or higher**
 - **API Credentials** from Avela (client_id and client_secret)
 - **Form IDs and Question Keys** you want to update
+
+**macOS users:** If you haven't used Python before, you may need to install Xcode Command Line Tools first:
+```bash
+xcode-select --install
+```
+A dialog will appear - click "Install" and wait for it to complete. This provides the compiler tools Python needs to create virtual environments.
 
 ## Installation
 
@@ -103,104 +91,31 @@ python form_update_client.py
 ### Expected Output
 
 ```
-================================================================================
-AVELA CUSTOMER API v2 - UPDATE FORM ANSWERS FROM CSV
-================================================================================
-
 Authenticating with Avela API (prod)...
-✓ Authentication successful! Token expires in 86400 seconds.
+✓ Authentication successful!
 
 ✓ Read 3 updates from CSV file
-
 Processing updates for 2 form(s)...
 
-Form: e4c2f10d-b94a-49eb-b6b2-a129b0840f90
-  2 update(s) to process
-  • internal1 (FreeText) = "Test Answer Value"
-  • student_email (Email) = "john@example.com"
+Form: e4c2f10d-...
   Submitting 2 question(s) to API... ✓
 
-Form: f5d3e20e-c05b-50fc-c7c3-b230c0951fa1
-  1 update(s) to process
-  • grade_level (Number) = "9"
+Form: f5d3e20e-...
   Submitting 1 question(s) to API... ✓
 
-================================================================================
-RESULTS
-================================================================================
-✓ Successful updates: 3
-✗ Failed updates: 0
-Total: 3
-================================================================================
-
-✓ Integration completed successfully!
+RESULTS: ✓ Successful: 3 | Failed: 0
 ```
 
-## What This Example Does
+## Question Types
 
-1. **Loads Configuration** - Reads your API credentials from `config.json`
-
-2. **Authenticates** - Uses OAuth2 client credentials flow to get an access token
-
-3. **Reads CSV** - Parses the `sample_updates.csv` file and validates the format
-
-4. **Groups by Form** - Organizes updates by form_id to batch updates efficiently
-
-5. **Builds Answer Objects** - Converts answer values to the correct format based on question type
-
-6. **Updates Answers** - Sends POST requests to `/api/rest/v2/forms/{id}/questions` with batched updates
-
-7. **Reports Results** - Displays success/failure counts for all updates
-
-## API Endpoint Used
-
-This example uses the Customer API v2 endpoint:
-
-### Update Form Questions
-```
-POST /api/rest/v2/forms/{formId}/questions
-```
-
-**Request body:**
-```json
-{
-  "questions": [
-    {
-      "key": "internal1",
-      "type": "FreeText",
-      "answer": {
-        "free_text": {
-          "value": "Test Answer Value"
-        }
-      }
-    },
-    {
-      "key": "student_email",
-      "type": "Email",
-      "answer": {
-        "email": {
-          "value": "john@example.com"
-        }
-      }
-    }
-  ]
-}
-```
-
-## Question Types and Answer Formats
-
-Different question types require different answer structures:
-
-| Question Type | Answer Format | CSV Example |
-|--------------|---------------|-------------|
-| FreeText | `{"free_text": {"value": "..."}}` | `key,FreeText,John Doe` |
-| Email | `{"email": {"value": "..."}}` | `email,Email,john@example.com` |
-| PhoneNumber | `{"phone_number": {"value": "..."}}` | `phone,PhoneNumber,555-0123` |
-| Number | `{"number": {"value": 42}}` | `age,Number,42` |
-| Date | `{"date": {"value": "2024-03-15"}}` | `dob,Date,2024-03-15` |
-| SingleSelect | `{"single_select": {"value": "uuid"}}` | `choice,SingleSelect,option-uuid` |
-
-**Note:** For SingleSelect, the answer_value should be the UUID of the selected option, not the label.
+| Type         | CSV Example                          | Notes                    |
+|--------------|--------------------------------------|--------------------------|
+| FreeText     | `internal1,FreeText,John Doe`        | Default if type omitted  |
+| Email        | `contact,Email,john@example.com`     | Must be valid email      |
+| PhoneNumber  | `phone,PhoneNumber,555-0123`         |                          |
+| Number       | `age,Number,42`                      | Must be numeric          |
+| Date         | `dob,Date,2024-03-15`                | Format: YYYY-MM-DD       |
+| SingleSelect | `choice,SingleSelect,option-uuid`    | Use option UUID, not label |
 
 ## Common Issues
 
@@ -249,29 +164,34 @@ Different question types require different answer structures:
 - **Rotate credentials regularly** - Follow your organization's security policies
 - **Limit API permissions** - Use credentials with minimum necessary permissions
 
+## Additional Resources
+
+- [Other examples in this repository](../)
+- Integration Support: Contact your Avela representative
+
+---
+
 ## Extending This Example
 
 ### Adding More Question Types
 
-To support additional question types like MultiSelect or Address, extend the `build_answer_object()` function:
+To support additional question types like MultiSelect or Address, extend the `build_answer_object()` function in the script:
 
 ```python
 # For MultiSelect
 if question_type == 'MultiSelect':
-    # Parse comma-separated UUIDs
     option_uuids = [uuid.strip() for uuid in answer_value.split(',')]
     return {'multi_select': {'values': option_uuids}}
 
 # For Address
 if question_type == 'Address':
-    # Parse JSON address object from CSV
     address_data = json.loads(answer_value)
     return {'address': address_data}
 ```
 
-### Error Recovery with Retries
+### Adding Retry Logic
 
-Add retry logic for transient failures:
+For production use, add retry logic for transient failures:
 
 ```python
 from time import sleep
@@ -280,40 +200,13 @@ def update_with_retry(access_token, environment, form_id, questions, max_retries
     for attempt in range(max_retries):
         try:
             return update_form_questions(access_token, environment, form_id, questions)
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if attempt < max_retries - 1:
                 sleep(2 ** attempt)  # Exponential backoff
                 continue
             raise
 ```
 
-### Progress Tracking
-
-For large CSV files, add a progress bar:
-
-```bash
-pip install tqdm
-```
-
-```python
-from tqdm import tqdm
-
-for form_id, form_updates in tqdm(updates_by_form.items(), desc="Processing forms"):
-    # Process updates...
-```
-
-## Additional Resources
-
-- **Customer API v2 Documentation:** Contact your Avela representative
-- **Avela Developer Portal:** See other examples in this repository
-- **Integration Support:** Contact your Avela integration support team
-
-## License
-
-MIT License - See LICENSE file for details
-
 ---
 
-**Complexity Level:** Intermediate
-**Language:** Python 3.10+
-**API Version:** v2
+**Complexity Level:** Intermediate | **Language:** Python 3.10+ | **API Version:** v2
