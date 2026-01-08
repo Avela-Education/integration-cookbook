@@ -359,9 +359,9 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 ## API Endpoints Used
 
 ### Authentication
-- **Endpoint:** `https://{env}.auth.avela.org/oauth/token`
+- **Endpoint (prod):** `https://auth.avela.org/oauth/token`
+- **Endpoint (non-prod):** `https://{env}.auth.avela.org/oauth/token`
 - **Method:** POST
-- **Purpose:** Obtain OAuth2 access token
 
 ### Get Form Files
 - **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/forms/files`
@@ -384,24 +384,9 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 ## Security Best Practices
 
 - Never commit `config.json` to version control
-- Use environment variables in production systems
-- Rotate credentials regularly
-- Store credentials securely (use secrets management)
-- Be careful with downloaded files - they may contain sensitive data
-- Delete downloaded files securely when no longer needed
-
-## Support
-
-- Report issues: [GitHub Issues](https://github.com/Avela-Education/integration-cookbook/issues)
-- Ask questions: [GitHub Discussions](https://github.com/Avela-Education/integration-cookbook/discussions)
-- Email: [api-support@avela.org](mailto:api-support@avela.org)
-
-## Contributing
-
-Found a way to improve this example? We welcome contributions! See our [Contributing Guide](../../CONTRIBUTING.md).
+- Use environment variables in production
+- Downloaded files may contain sensitive data - handle and delete securely
 
 ---
 
-**Complexity Level:** Beginner
-**Language:** Python 3.10+
-**API Version:** v2
+**Complexity Level:** Beginner | **Language:** Python 3.10+ | **API Version:** v2
