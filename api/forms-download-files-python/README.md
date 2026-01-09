@@ -17,6 +17,8 @@ Perfect for backing up form attachments, migrating files, or processing uploaded
 
 [![Watch the AI Agent Walkthrough](https://img.youtube.com/vi/qA-o_W8KdQQ/maxresdefault.jpg)](https://youtu.be/qA-o_W8KdQQ)
 
+▶️ **[Watch the Video](https://youtu.be/qA-o_W8KdQQ)** - See how to use an AI agent to automate file downloads
+
 ## Prerequisites
 
 - Python 3.10 or higher
