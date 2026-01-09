@@ -13,6 +13,10 @@ This example shows how to:
 
 Perfect for backing up form attachments, migrating files, or processing uploaded documents.
 
+## See It In Action
+
+[![Watch the AI Agent Walkthrough](https://img.youtube.com/vi/qA-o_W8KdQQ/maxresdefault.jpg)](https://youtu.be/qA-o_W8KdQQ)
+
 ## Prerequisites
 
 - Python 3.10 or higher
