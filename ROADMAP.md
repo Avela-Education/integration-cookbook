@@ -2,14 +2,9 @@
 
 This document outlines the planned development for the Avela Integration Cookbook.
 
-## Current Examples
-
-- [Fetch All Applicants (Python)](api/applicants-fetch-all-python/) - Retrieve and export applicant data with automatic pagination
-- [Update Forms from CSV (Python)](api/forms-update-csv-python/) - Bulk update form answers by reading from a CSV file
-
 ## In Progress
 
-- Download Form Files (Python) - Batch download file attachments from forms
+- Refactor `forms-download-files-python/advanced/` to use shared `avela_client` module
 
 ## Coming Soon
 
@@ -51,7 +46,6 @@ This document outlines the planned development for the Avela Integration Cookboo
 ### Advanced Patterns
 - Caching strategies
 - Bulk operations with batching
-- Rate limiting and backoff
 - Error recovery patterns
 
 ### Developer Tools
