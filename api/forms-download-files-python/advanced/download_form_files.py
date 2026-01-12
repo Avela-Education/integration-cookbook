@@ -7,6 +7,8 @@ This script demonstrates how to:
 2. Retrieve file upload questions and pre-signed download URLs for forms
 3. Download all file attachments to a local directory
 
+Uses the shared avela_client module for authentication, rate limiting, and retry logic.
+
 Author: Avela Education
 License: MIT
 """
@@ -16,20 +18,18 @@ import json
 import logging
 import os
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
 
 import requests
+
+from avela_client import AvelaClient, create_client_from_config
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 
 BATCH_SIZE = 60
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
 
 
 # =============================================================================
@@ -162,51 +162,6 @@ def count_existing_files(folder_path: Path) -> int:
     return count
 
 
-# =============================================================================
-# CONFIGURATION LOADING
-# =============================================================================
-
-
-def load_config(config_path: str = 'config.json') -> dict:
-    """
-    Load configuration from a JSON file.
-
-    The config file should contain:
-    - client_id: Your OAuth2 client ID (provided by Avela)
-    - client_secret: Your OAuth2 client secret (provided by Avela)
-    - environment: Which Avela environment to connect to (prod, qa, uat, dev)
-
-    Args:
-        config_path: Path to the configuration JSON file
-
-    Returns:
-        Dictionary containing configuration values
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
-    """
-    config_file = Path(config_path)
-
-    if not config_file.exists():
-        print(f"Error: Configuration file '{config_path}' not found!")
-        print("Please create it based on 'config.example.json'")
-        sys.exit(1)
-
-    with open(config_file, encoding='utf-8') as f:
-        config = json.load(f)
-
-    # Validate required fields
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing_fields = [field for field in required_fields if field not in config]
-
-    if missing_fields:
-        print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
-        sys.exit(1)
-
-    return config
-
-
 def detect_input_format(file_path: str) -> str:
     """
     Detect if input file is a CSV with student info or a plain text file.
@@ -330,82 +285,12 @@ def _load_csv_file(file_path: str) -> tuple[list[str], dict]:
 
 
 # =============================================================================
-# AUTHENTICATION
-# =============================================================================
-
-
-def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
-    """
-    Authenticate with Avela API and get an access token.
-
-    This function uses the OAuth2 "client credentials" flow:
-    1. Send client_id and client_secret to the authentication endpoint
-    2. Receive an access token that's valid for 24 hours
-    3. Use this token in subsequent API requests
-
-    Args:
-        client_id: Your OAuth2 client ID
-        client_secret: Your OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev)
-
-    Returns:
-        Access token string (JWT format)
-
-    Raises:
-        requests.RequestException: If authentication fails
-    """
-    # Build the authentication URL based on environment
-    if environment == 'prod':
-        auth_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    else:
-        auth_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
-
-    print(f'Authenticating with Avela API ({environment})...')
-
-    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'audience': audience,
-    }
-
-    try:
-        response = requests.post(auth_url, data=data, headers=headers, timeout=30)
-        response.raise_for_status()
-
-        token_data = response.json()
-        access_token = token_data.get('access_token')
-
-        if not access_token:
-            print('Error: No access token in response!')
-            print(f'Response: {token_data}')
-            sys.exit(1)
-
-        expires_in = token_data.get('expires_in', 86400)
-        print(f'Authentication successful! Token expires in {expires_in} seconds.')
-
-        return access_token
-
-    except requests.exceptions.RequestException as e:
-        print('Error: Authentication failed!')
-        print(f'Details: {e}')
-        if hasattr(e, 'response') and e.response is not None:
-            print(f'Response: {e.response.text}')
-        sys.exit(1)
-
-
-# =============================================================================
 # FORM FILES API
 # =============================================================================
 
 
 def get_form_files(
-    access_token: str,
-    environment: str,
+    client: AvelaClient,
     form_ids: list[str],
 ) -> list[dict]:
     """
@@ -413,11 +298,11 @@ def get_form_files(
 
     This function calls the GET /rest/v2/forms/files endpoint which returns
     file upload questions from forms along with pre-signed download URLs
-    for each uploaded document. Includes retry logic for transient failures.
+    for each uploaded document. Rate limiting and retry logic are handled
+    by the AvelaClient.
 
     Args:
-        access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
+        client: Authenticated AvelaClient instance
         form_ids: List of form IDs to get files for (max 100)
 
     Returns:
@@ -426,59 +311,25 @@ def get_form_files(
     Raises:
         requests.RequestException: If API request fails after all retries
     """
-    # Build the API URL based on environment
-    if environment == 'prod':
-        api_base_url = 'https://prod.execute-api.apply.avela.org/api/rest/v2/'
-    else:
-        api_base_url = f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
-
-    files_url = urljoin(api_base_url, 'forms/files')
-
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
-
     # form_id parameter is comma-delimited
     params = {'form_id': ','.join(form_ids)}
 
     logging.info(f'Fetching file information for {len(form_ids)} form(s)...')
 
-    last_error = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = requests.get(files_url, headers=headers, params=params, timeout=60)
+    response = client.get('/forms/files', params=params)
 
-            # This endpoint returns 207 Multi-Status for batch responses
-            if response.status_code not in [200, 207]:
-                response.raise_for_status()
+    # This endpoint returns 207 Multi-Status for batch responses
+    if response.status_code not in [200, 207]:
+        response.raise_for_status()
 
-            data = response.json()
+    data = response.json()
 
-            # The response contains a 'responses' array with per-form results
-            responses = data.get('responses', [])
+    # The response contains a 'responses' array with per-form results
+    responses = data.get('responses', [])
 
-            logging.info(f'Received responses for {len(responses)} form(s)')
+    logging.info(f'Received responses for {len(responses)} form(s)')
 
-            return responses
-
-        except requests.exceptions.RequestException as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                wait_time = RETRY_DELAY * (attempt + 1)
-                logging.warning(
-                    f'API request failed (attempt {attempt + 1}/{MAX_RETRIES}), '
-                    f'retrying in {wait_time}s: {e}'
-                )
-                time.sleep(wait_time)
-            else:
-                logging.error(f'API request failed after {MAX_RETRIES} attempts: {e}')
-
-    # If we get here, all retries failed
-    logging.error('Failed to fetch form files after all retries!')
-    if hasattr(last_error, 'response') and last_error.response is not None:
-        logging.error(f'Response: {last_error.response.text}')
-    sys.exit(1)
+    return responses
 
 
 # =============================================================================
@@ -761,14 +612,20 @@ def main():
     logging.info('=' * 60)
     logging.info(f'Log file: {log_file}')
 
-    # Step 2: Load configuration
-    config = load_config('config.json')
+    # Step 2: Create API client (handles auth, rate limiting, retries)
+    try:
+        client = create_client_from_config('config.json')
+    except FileNotFoundError:
+        print("Error: Configuration file 'config.json' not found!")
+        print("Please create it based on 'config.example.json'")
+        sys.exit(1)
+    except ValueError as e:
+        print(f'Error: {e}')
+        sys.exit(1)
 
-    client_id = config['client_id']
-    client_secret = config['client_secret']
-    environment = config['environment']
-
-    # Optional settings
+    # Load optional settings from config
+    with open('config.json', encoding='utf-8') as f:
+        config = json.load(f)
     output_dir = config.get('output_dir')
     question_key_filter = config.get('question_key_filter', [])
 
@@ -778,13 +635,13 @@ def main():
 
     input_type = 'CSV' if student_map else 'text'
     logging.info(f'Input file: {input_file} ({input_type} format)')
-    logging.info(f'Environment: {environment}')
+    logging.info(f'Environment: {client.environment}')
     logging.info(f'Form IDs: {len(form_ids)}')
     if question_key_filter:
         logging.info(f'Question filter: {question_key_filter}')
 
     # Step 4: Authenticate
-    access_token = get_access_token(client_id, client_secret, environment)
+    client.authenticate()
 
     # Step 5: Process in batches - fetch and download immediately
     # Using smaller batch size (60) to avoid URL expiration issues
@@ -808,7 +665,7 @@ def main():
         logging.info(f'--- Batch {i}/{total_batches} ({len(chunk)} forms) ---')
 
         # Fetch file metadata for this batch
-        responses = get_form_files(access_token, environment, chunk)
+        responses = get_form_files(client, chunk)
 
         # Download immediately (before pre-signed URLs expire)
         batch_stats, _ = download_all_files(

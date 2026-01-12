@@ -17,7 +17,7 @@ Use this advanced version when you need:
 
 - **CSV input with student info** - Organize files by student name instead of form ID
 - **Resume support** - Continue interrupted downloads without re-downloading
-- **Retry logic for API calls** - Handle transient failures when fetching file metadata
+- **Retry logic for API calls** - Automatic retry with exponential backoff (via shared `avela_client` module)
 - **Logging to file** - Keep a record of what was downloaded
 - **Question filtering** - Download only specific file types (e.g., immunization records)
 
@@ -30,10 +30,13 @@ For learning the API or simple one-time downloads, use the [basic version](../RE
 | Input format | Text file only | Text file OR CSV |
 | Folder naming | `form_<uuid>/` | `Last, First (RefID) - FormID/` (with CSV) |
 | Resume support | None | Skips folders that already contain files |
-| Retry logic | None | 3 retries with backoff (API calls) |
+| Retry logic | None | Exponential backoff via `avela_client` |
 | Logging | Console only | Console + log file |
 | Question filter | None | Filter by question key |
 | Batch size | 100 | 60 (avoids URL expiry) |
+| Rate limiting | None | Proactive (100 req/5min) via `avela_client` |
+
+This version uses the shared [`avela_client`](../../../shared/python/) module which provides OAuth2 authentication, automatic rate limiting, and retry with exponential backoff.
 
 ## Setup
 
