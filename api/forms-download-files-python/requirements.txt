@@ -10,3 +10,6 @@
 
 # HTTP library for making API requests and downloading files
 requests>=2.31.0
+
+# Shared Avela client module (includes backoff for retries)
+-e ../../shared/python
