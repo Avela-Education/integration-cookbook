@@ -22,7 +22,6 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-
 from avela_client import AvelaClient, create_client_from_config
 
 # =============================================================================
