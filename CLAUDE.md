@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Operations
+
+**NEVER stage (`git add`) or commit files unless explicitly asked by the user.** Only make code changes and let the user decide when to stage and commit.
+
 ## Project Overview
 
 This is the **Avela Integration Cookbook** - a collection of production-ready integration examples and patterns for the Avela Education Platform. It serves as a reference library for developers building integrations using Avela's Customer API v2, webhooks, and CSV processing.
@@ -183,6 +187,53 @@ Most endpoints return data in this structure:
   "limit": 1000
 }
 ```
+
+## Fetching the OpenAPI v2 Spec
+
+The API v2 spec is dynamically generated and served from the `/api/rest/v2/doc` endpoint. It requires authentication.
+
+### Finding Credentials
+
+Look for `config.json` in any recipe directory (these are gitignored):
+```bash
+ls api/*/config.json
+```
+
+Example config.json structure:
+```json
+{
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "environment": "uat"
+}
+```
+
+### Fetching the Spec
+
+```bash
+# Set environment (uat, qa, dev, or prod)
+ENV=uat
+
+# 1. Get an access token
+TOKEN=$(curl -s -X POST "https://${ENV}.auth.avela.org/oauth/token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "YOUR_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "audience": "https://'"${ENV}"'.api.apply.avela.org/v1/graphql",
+    "grant_type": "client_credentials"
+  }' | jq -r '.access_token')
+
+# 2. Fetch the OpenAPI spec
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://${ENV}.execute-api.apply.avela.org/api/rest/v2/doc" > openapi-v2.json
+```
+
+**Notes:**
+- The audience must include `/v1/graphql` suffix
+- For prod, URLs omit the environment prefix (e.g., `https://auth.avela.org/oauth/token`)
+- The spec is ~180KB and includes all v2 endpoints
+- Interactive docs: `https://{env}.api-docs.avela.dev/v2/index.html`
 
 ## Contributing Recipes
 
