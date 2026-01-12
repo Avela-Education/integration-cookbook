@@ -1,5 +1,6 @@
 # Sensitive configuration files with credentials
 config.json
+.mcp.json
 *.config.json
 !*.example.json
 !config.example.json
