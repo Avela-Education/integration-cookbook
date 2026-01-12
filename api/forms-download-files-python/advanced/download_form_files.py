@@ -447,9 +447,7 @@ def get_form_files(
     last_error = None
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.get(
-                files_url, headers=headers, params=params, timeout=60
-            )
+            response = requests.get(files_url, headers=headers, params=params, timeout=60)
 
             # This endpoint returns 207 Multi-Status for batch responses
             if response.status_code not in [200, 207]:
@@ -670,7 +668,9 @@ def download_all_files(
                 if download_file(download_url, file_path):
                     stats['downloaded'] += 1
                 else:
-                    logging.error(f'Failed to download: {folder_name}/{question_key}/{filename}')
+                    logging.error(
+                        f'Failed to download: {folder_name}/{question_key}/{filename}'
+                    )
                     stats['failed'] += 1
 
     return stats, output_dir
@@ -689,7 +689,9 @@ def print_summary(stats: dict, output_dir: str) -> None:
     logging.info('DOWNLOAD SUMMARY')
     logging.info('=' * 60)
     logging.info(f'Forms processed:    {stats["total_forms"]}')
-    logging.info(f'Forms skipped:      {stats.get("skipped_existing", 0)} (already downloaded)')
+    logging.info(
+        f'Forms skipped:      {stats.get("skipped_existing", 0)} (already downloaded)'
+    )
     logging.info(f'Total files:        {stats["total_files"]}')
     logging.info(f'Downloaded:         {stats["downloaded"]}')
     logging.info(f'Failed:             {stats["failed"]}')
