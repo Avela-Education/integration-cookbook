@@ -2,10 +2,6 @@
 
 This document outlines the planned development for the Avela Integration Cookbook.
 
-## In Progress
-
-- Refactor `forms-download-files-python/advanced/` to use shared `avela_client` module
-
 ## Coming Soon
 
 ### Node.js Versions
