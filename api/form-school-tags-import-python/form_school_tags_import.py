@@ -28,113 +28,15 @@ All forms in the CSV must belong to the same enrollment period.
 
 import argparse
 import csv
-import json
 import re
 import sys
 
-import requests
+from avela_client import AvelaClient, create_client_from_config
 
-# UUID validation pattern: 8-4-4-4-12 hex characters (e.g., "550e8400-e29b-41d4-a716-446655440000")
+# UUID validation pattern
 UUID_PATTERN = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE
 )
-
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
-
-
-def load_config(config_path: str = 'config.json') -> dict:
-    """
-    Load and validate configuration from JSON file.
-
-    Args:
-        config_path: Path to configuration file
-
-    Returns:
-        Configuration dictionary with client_id, client_secret, environment
-    """
-    try:
-        with open(config_path, encoding='utf-8') as f:
-            config = json.load(f)
-    except FileNotFoundError:
-        print(f'Error: Configuration file not found: {config_path}')
-        print('Please copy config.example.json to config.json and add your credentials.')
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f'Error: Invalid JSON in configuration file: {e}')
-        sys.exit(1)
-
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing = [f for f in required_fields if not config.get(f)]
-    if missing:
-        print(f'Error: Missing required configuration fields: {", ".join(missing)}')
-        sys.exit(1)
-
-    return config
-
-
-# =============================================================================
-# AUTHENTICATION
-# =============================================================================
-
-
-def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
-    """
-    Get bearer token via OAuth2 client credentials flow.
-
-    Args:
-        client_id: OAuth2 client ID
-        client_secret: OAuth2 client secret
-        environment: Target environment (prod, staging, uat, qa, dev, dev2)
-
-    Returns:
-        Access token string
-    """
-    if environment == 'prod':
-        token_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    elif environment == 'staging':
-        # Staging uses a direct Auth0 URL (exception to the normal pattern)
-        token_url = 'https://avela-staging.us.auth0.com/oauth/token'
-        audience = 'https://staging.api.apply.avela.org/v1/graphql'
-    else:
-        token_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
-
-    print(f'Authenticating with Avela API ({environment})...', file=sys.stderr)
-
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'audience': audience,
-    }
-
-    try:
-        response = requests.post(
-            token_url,
-            data=data,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'},
-            timeout=30,
-        )
-        response.raise_for_status()
-        token_data = response.json()
-        access_token = token_data.get('access_token')
-
-        if not access_token:
-            print('Error: No access token in response', file=sys.stderr)
-            sys.exit(1)
-
-        print('✓ Authentication successful', file=sys.stderr)
-        return access_token
-
-    except requests.exceptions.RequestException as e:
-        print(f'Error: Authentication failed: {e}', file=sys.stderr)
-        if hasattr(e, 'response') and e.response is not None:
-            print(f'Response: {e.response.text}', file=sys.stderr)
-        sys.exit(1)
 
 
 # =============================================================================
@@ -193,7 +95,7 @@ def read_csv(
                 print('Error: CSV must have "School ID" column', file=sys.stderr)
                 sys.exit(1)
 
-            # Check for Tag Name column (prefer "Tag Name", fall back to "Tag ID" for compatibility)
+            # Check for Tag Name column
             if 'TAG NAME' not in headers and 'TAG ID' not in headers:
                 print(
                     'Error: CSV must have "Tag Name" or "Tag ID" column', file=sys.stderr
@@ -233,103 +135,51 @@ def read_csv(
 # =============================================================================
 
 
-def get_api_base_url(environment: str) -> str:
-    """Get API base URL for environment."""
-    # All environments (including prod and staging) follow the same pattern
-    return f'https://{environment}.execute-api.apply.avela.org/api/rest/v2'
-
-
-def get_form(access_token: str, environment: str, form_id: str) -> dict:
+def get_form(client: AvelaClient, form_id: str) -> dict:
     """
     Fetch a single form to get its enrollment period.
 
-    This is used to determine which enrollment period the tags belong to,
-    so we can fetch the correct set of available tag names.
-
     Args:
-        access_token: Bearer token for API authentication
-        environment: Target environment (prod, uat, qa, dev)
+        client: Authenticated AvelaClient instance
         form_id: UUID of the form to fetch
 
     Returns:
         Form data dict containing enrollment_period.id
-
-    Raises:
-        SystemExit: If form is not found or API call fails
     """
-    base_url = get_api_base_url(environment)
-    url = f'{base_url}/forms/{form_id}'
+    response = client.get(f'/forms/{form_id}')
 
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
-
-    try:
-        response = requests.get(url, headers=headers, timeout=30)
-
-        if response.status_code == 404:
-            print(f'Error: Form not found: {form_id}', file=sys.stderr)
-            sys.exit(1)
-
-        response.raise_for_status()
-        # API returns {"form": {...}}, unwrap to get form data directly
-        return response.json().get('form', {})
-
-    except requests.exceptions.RequestException as e:
-        print(f'Error: Failed to fetch form: {e}', file=sys.stderr)
+    if response.status_code == 404:
+        print(f'Error: Form not found: {form_id}', file=sys.stderr)
         sys.exit(1)
 
+    response.raise_for_status()
+    return response.json().get('form', {})
 
-def fetch_tags(
-    access_token: str, environment: str, enrollment_period_id: str
-) -> dict[str, str]:
+
+def fetch_tags(client: AvelaClient, enrollment_period_id: str) -> dict[str, str]:
     """
     Fetch all tags for an enrollment period and build a name-to-ID lookup.
 
-    This lookup dictionary is used to resolve tag names from the CSV
-    to their corresponding UUIDs for API calls. The lookup is case-insensitive.
-
     Args:
-        access_token: Bearer token for API authentication
-        environment: Target environment (prod, uat, qa, dev)
-        enrollment_period_id: UUID of the enrollment period to fetch tags for
+        client: Authenticated AvelaClient instance
+        enrollment_period_id: UUID of the enrollment period
 
     Returns:
         Dictionary mapping lowercase tag names to tag UUIDs
-        Example: {"eligible for lottery": "abc-123-...", ...}
-
-    Raises:
-        SystemExit: If API call fails
     """
-    base_url = get_api_base_url(environment)
-    url = f'{base_url}/tags'
+    response = client.get('/tags', params={'enrollment_period_id': enrollment_period_id})
+    response.raise_for_status()
+    data = response.json()
 
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
+    # Build case-insensitive lookup: {lowercase_name: id}
+    tag_cache: dict[str, str] = {}
+    for tag in data.get('tags', []):
+        name = tag.get('name', '').lower()
+        tag_id = tag.get('id', '')
+        if name and tag_id:
+            tag_cache[name] = tag_id
 
-    params = {'enrollment_period_id': enrollment_period_id}
-
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-
-        # Build case-insensitive lookup: {lowercase_name: id}
-        tag_cache: dict[str, str] = {}
-        for tag in data.get('tags', []):
-            name = tag.get('name', '').lower()
-            tag_id = tag.get('id', '')
-            if name and tag_id:
-                tag_cache[name] = tag_id
-
-        return tag_cache
-
-    except requests.exceptions.RequestException as e:
-        print(f'Error: Failed to fetch tags: {e}', file=sys.stderr)
-        sys.exit(1)
+    return tag_cache
 
 
 def resolve_tag_name(
@@ -338,26 +188,20 @@ def resolve_tag_name(
     """
     Look up a tag name in the cache and return its UUID.
 
-    Matching is case-insensitive. If the tag is not found, returns a helpful
-    error message listing available tag names.
-
     Args:
         tag_name: The tag name from the CSV (case-insensitive)
         tag_cache: Dictionary mapping lowercase names to UUIDs
 
     Returns:
         Tuple of (tag_id, error_message) - one will be None
-        - Success: (tag_id, None)
-        - Failure: (None, "Tag 'xyz' not found. Available: ...")
     """
-    # Look up using lowercase for case-insensitive matching
     tag_id = tag_cache.get(tag_name.lower())
 
     if tag_id:
         return tag_id, None
 
     # Tag not found - build helpful error message
-    available = ', '.join(sorted(tag_cache.keys())[:5])  # Show first 5
+    available = ', '.join(sorted(tag_cache.keys())[:5])
     if len(tag_cache) > 5:
         available += f', ... ({len(tag_cache)} total)'
 
@@ -365,32 +209,18 @@ def resolve_tag_name(
 
 
 def add_tag(
-    access_token: str, environment: str, form_id: str, school_id: str, tag_id: str
+    client: AvelaClient, form_id: str, school_id: str, tag_id: str
 ) -> tuple[bool, int, str]:
     """
     Add a tag to a form-school choice via the Customer API.
 
-    Args:
-        access_token: Bearer token
-        environment: Target environment
-        form_id: Form UUID
-        school_id: School UUID
-        tag_id: Tag UUID
-
     Returns:
         Tuple of (success: bool, affected_rows: int, error_message: str)
     """
-    base_url = get_api_base_url(environment)
-    url = f'{base_url}/tags/forms/{form_id}/schools/{school_id}'
-
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
-
     try:
-        response = requests.post(
-            url, json={'tag_id': tag_id}, headers=headers, timeout=30
+        response = client.post(
+            f'/tags/forms/{form_id}/schools/{school_id}',
+            json={'tag_id': tag_id},
         )
 
         if response.status_code == 401:
@@ -404,39 +234,23 @@ def add_tag(
         affected_rows = data.get('affected_rows', 0)
         return True, affected_rows, ''
 
-    except requests.exceptions.Timeout:
-        return False, 0, 'Request timeout'
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return False, 0, str(e)
 
 
 def delete_tag(
-    access_token: str, environment: str, form_id: str, school_id: str, tag_id: str
+    client: AvelaClient, form_id: str, school_id: str, tag_id: str
 ) -> tuple[bool, int, str]:
     """
     Remove a tag from a form-school choice via the Customer API.
 
-    Args:
-        access_token: Bearer token
-        environment: Target environment
-        form_id: Form UUID
-        school_id: School UUID
-        tag_id: Tag UUID
-
     Returns:
         Tuple of (success: bool, affected_rows: int, error_message: str)
     """
-    base_url = get_api_base_url(environment)
-    url = f'{base_url}/tags/forms/{form_id}/schools/{school_id}'
-
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
-
     try:
-        response = requests.delete(
-            url, json={'tag_id': tag_id}, headers=headers, timeout=30
+        response = client.delete(
+            f'/tags/forms/{form_id}/schools/{school_id}',
+            json={'tag_id': tag_id},
         )
 
         if response.status_code == 401:
@@ -450,9 +264,7 @@ def delete_tag(
         affected_rows = data.get('affected_rows', 0)
         return True, affected_rows, ''
 
-    except requests.exceptions.Timeout:
-        return False, 0, 'Request timeout'
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return False, 0, str(e)
 
 
@@ -463,8 +275,7 @@ def delete_tag(
 
 def process_tags(
     records: list[tuple[str, str, str, int]],
-    access_token: str,
-    environment: str,
+    client: AvelaClient,
     tag_cache: dict[str, str],
     dry_run: bool = False,
     delete_mode: bool = False,
@@ -472,24 +283,18 @@ def process_tags(
     """
     Process tag assignments from CSV records.
 
-    For each record, validates the form and school UUIDs, resolves the tag name
-    to its UUID using the tag cache, then calls the API to add or remove the tag.
-
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
-        access_token: Bearer token for API authentication
-        environment: Target environment (prod, uat, qa, dev)
+        client: Authenticated AvelaClient instance
         tag_cache: Dictionary mapping lowercase tag names to UUIDs
         dry_run: If True, validate only without making API calls
         delete_mode: If True, remove tags instead of adding them
 
     Returns:
-        Tuple of (affected, not_found, error_count, errors_list)
-        - In add mode: (inserted, already_existed, errors, error_list)
-        - In delete mode: (deleted, not_found, errors, error_list)
+        Tuple of (affected, skipped, error_count, errors_list)
     """
-    affected = 0  # inserted (add mode) or deleted (delete mode)
-    skipped = 0  # already_existed (add mode) or not_found (delete mode)
+    affected = 0
+    skipped = 0
     errors: list[tuple[int, str]] = []
     total = len(records)
 
@@ -517,14 +322,11 @@ def process_tags(
             continue
 
         if dry_run:
-            # In dry-run mode, count as "would be affected"
             affected += 1
             continue
 
         # Make API call to add or remove the tag
-        success, affected_rows, error_msg = api_fn(
-            access_token, environment, form_id, school_id, tag_id
-        )
+        success, affected_rows, error_msg = api_fn(client, form_id, school_id, tag_id)
 
         if not success:
             if 'Unauthorized' in error_msg:
@@ -548,12 +350,12 @@ def main():
     parser.add_argument(
         '--delete',
         action='store_true',
-        help='Remove tags instead of adding them (useful for resetting tests)',
+        help='Remove tags instead of adding them',
     )
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Validate CSV and resolve tags without modifying data (still fetches from API)',
+        help='Validate CSV and resolve tags without modifying data',
     )
     parser.add_argument(
         '--start-row', type=int, default=0, help='Skip first N data rows (default: 0)'
@@ -567,9 +369,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Load configuration
-    config = load_config(args.config)
-
     # Display mode information
     if args.delete:
         print(
@@ -579,11 +378,16 @@ def main():
     if args.dry_run:
         print('DRY RUN MODE - Will validate but not modify data', file=sys.stderr)
 
-    # Authenticate with the API
-    # Note: We always authenticate because we need to fetch form/tag data even in dry-run
-    access_token = get_access_token(
-        config['client_id'], config['client_secret'], config['environment']
-    )
+    # Create client from config (handles authentication automatically)
+    try:
+        client = create_client_from_config(args.config)
+    except FileNotFoundError:
+        print(f'Error: Configuration file not found: {args.config}', file=sys.stderr)
+        print('Please copy config.example.json to config.json and add your credentials.')
+        sys.exit(1)
+    except ValueError as e:
+        print(f'Error: {e}', file=sys.stderr)
+        sys.exit(1)
 
     # Read CSV to get form IDs and tag names
     print(f'\nReading CSV: {args.csv_file}', file=sys.stderr)
@@ -593,40 +397,38 @@ def main():
         print('No records to process.', file=sys.stderr)
         sys.exit(0)
 
-    print(f'✓ Found {len(records):,} rows to process', file=sys.stderr)
+    print(f'Found {len(records):,} rows to process', file=sys.stderr)
 
     if args.start_row > 0:
         print(f'  (skipped first {args.start_row} data rows)', file=sys.stderr)
 
     # Get enrollment period from the first form
-    # This determines which set of tags are available for lookup
-    first_form_id = records[0][0]  # form_id is first element of tuple
+    first_form_id = records[0][0]
     print(
         f'\nFetching enrollment period from form: {first_form_id[:8]}...', file=sys.stderr
     )
-    form_data = get_form(access_token, config['environment'], first_form_id)
+    form_data = get_form(client, first_form_id)
     enrollment_period_id = form_data.get('enrollment_period', {}).get('id')
 
     if not enrollment_period_id:
         print('Error: Could not determine enrollment period from form', file=sys.stderr)
         sys.exit(1)
 
-    print(f'✓ Enrollment period: {enrollment_period_id[:8]}...', file=sys.stderr)
+    print(f'Enrollment period: {enrollment_period_id[:8]}...', file=sys.stderr)
 
-    # Fetch all tags for this enrollment period and build lookup cache
-    # This cache maps tag names (lowercase) to their UUIDs
+    # Fetch all tags for this enrollment period
     print('Fetching available tags...', file=sys.stderr)
-    tag_cache = fetch_tags(access_token, config['environment'], enrollment_period_id)
-    print(f'✓ Found {len(tag_cache)} tags', file=sys.stderr)
+    tag_cache = fetch_tags(client, enrollment_period_id)
+    print(f'Found {len(tag_cache)} tags', file=sys.stderr)
 
-    # Process tags using the cached lookup
+    # Process tags
     action = 'Deleting' if args.delete else 'Processing'
     print(f'\n{action}...', file=sys.stderr)
     affected, skipped, error_count, errors = process_tags(
-        records, access_token, config['environment'], tag_cache, args.dry_run, args.delete
+        records, client, tag_cache, args.dry_run, args.delete
     )
 
-    # Print results with labels appropriate to the mode
+    # Print results
     print('\nResults:', file=sys.stderr)
     if args.dry_run:
         action_label = 'Would delete' if args.delete else 'Would insert'
@@ -644,12 +446,11 @@ def main():
     # Print errors
     if errors:
         print('\nErrors:', file=sys.stderr)
-        for csv_line, msg in errors[:20]:  # Limit to first 20
+        for csv_line, msg in errors[:20]:
             print(f'  Line {csv_line}: {msg}', file=sys.stderr)
         if len(errors) > 20:
             print(f'  ... and {len(errors) - 20} more errors', file=sys.stderr)
 
-    # Exit with error code if there were failures
     if error_count > 0:
         sys.exit(1)
 
