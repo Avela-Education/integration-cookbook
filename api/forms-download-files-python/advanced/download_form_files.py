@@ -694,7 +694,7 @@ def print_summary(stats: dict, output_dir: str) -> None:
     logging.info(f'Downloaded:         {stats["downloaded"]}')
     logging.info(f'Failed:             {stats["failed"]}')
     logging.info(f'Skipped (no URL):   {stats["skipped"]}')
-    logging.info(f'')
+    logging.info('')
     logging.info(f'Files saved to: {output_dir}')
     logging.info('=' * 60)
 
