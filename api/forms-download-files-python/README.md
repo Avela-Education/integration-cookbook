@@ -376,6 +376,17 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 - **Purpose:** Retrieve file metadata and pre-signed download URLs
 - **Response:** 207 Multi-Status with per-form results
 
+## Advanced Version
+
+Need more features? The [advanced version](./advanced/) includes:
+
+- **CSV input** - Use student names for folder organization
+- **Resume support** - Continue interrupted downloads
+- **Retry logic** - Handle network failures gracefully
+- **Question filtering** - Download only specific file types
+
+See [advanced/README.md](./advanced/README.md) for details.
+
 ## Related Examples
 
 - [Fetch All Applicants (Python)](../applicants-fetch-all-python/) - Export applicant data
