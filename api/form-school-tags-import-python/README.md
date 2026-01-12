@@ -5,7 +5,12 @@ Import form-school tag assignments from a CSV file via the Avela Customer API.
 ## Prerequisites
 
 - Python 3.10+
-- Client ID and Client Secret from Avela
+- Avela API credentials (Client ID and Client Secret)
+- API credentials must have these permissions:
+  - `form:read` - to fetch enrollment period from first form
+  - `tag:read` - to fetch available tags for name lookup
+  - `tag:create` - to add tags to form-school combinations
+  - `tag:delete` - only needed if using `--delete` mode
 
 ## Installation
 
@@ -129,7 +134,8 @@ Tag name matching is case-insensitive ("Eligible For Lottery" matches "eligible 
 | Error | Cause | Solution |
 | ----- | ----- | -------- |
 | `Unauthorized (401)` | Invalid credentials or expired token | Check client_id and client_secret in config.json |
-| `Form not found` | First form ID in CSV doesn't exist | Verify the form UUID is correct |
+| `You are not authorized to perform this action` | Missing API permissions | Ensure credentials have `tag:read`, `tag:create` permissions |
+| `Form not found` | Form doesn't exist or credentials can't access it | Verify form UUID and that credentials have access to this organization |
 | `Tag 'xyz' not found` | Tag name doesn't match any available tag | Check spelling, the error shows available tags |
 | `Form, school, or tag not found (404)` | Resource doesn't exist in the system | Verify the form and school UUIDs are correct |
 | `Configuration file not found` | Missing config.json | Copy config.example.json to config.json |

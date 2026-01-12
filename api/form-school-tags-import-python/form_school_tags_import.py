@@ -2,20 +2,28 @@
 """
 Form-School Tags CSV Import
 
-Import or delete form-school tag assignments from a CSV via the Avela Customer API.
+Bulk import or delete form-school tag assignments from a CSV file using the
+Avela Customer API v2. Tags are specified by name (not UUID) and automatically
+resolved via the API.
 
 Usage:
-    python form_school_tags_import.py tags.csv [--dry-run] [--start-row N] [--limit N]
-    python form_school_tags_import.py tags.csv --delete [--dry-run]
+    python form_school_tags_import.py tags.csv                    # Add tags
+    python form_school_tags_import.py tags.csv --dry-run          # Validate only
+    python form_school_tags_import.py tags.csv --delete           # Remove tags
+    python form_school_tags_import.py tags.csv --limit 10         # Test with 10 rows
+    python form_school_tags_import.py tags.csv --start-row 100    # Resume from row 100
 
 CSV Format:
     Form ID,School ID,Tag Name
-    (or App ID as alias for Form ID)
+    e4c2f10d-...,a1b2c3d4-...,Eligible For Lottery
 
-The script automatically looks up tag UUIDs from the API using the tag names
-provided in the CSV. Tag name matching is case-insensitive.
+Required API Permissions:
+    - form:read (to fetch enrollment period from first form)
+    - tag:read (to fetch available tags for name-to-UUID lookup)
+    - tag:create (to add tags to form-school combinations)
+    - tag:delete (only if using --delete mode)
 
-Use --delete to remove tags instead of adding them (useful for resetting tests).
+All forms in the CSV must belong to the same enrollment period.
 """
 
 import argparse
@@ -26,7 +34,7 @@ import sys
 
 import requests
 
-# UUID validation pattern (8-4-4-4-12 hex characters)
+# UUID validation pattern: 8-4-4-4-12 hex characters (e.g., "550e8400-e29b-41d4-a716-446655440000")
 UUID_PATTERN = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE
 )
@@ -265,7 +273,8 @@ def get_form(access_token: str, environment: str, form_id: str) -> dict:
             sys.exit(1)
 
         response.raise_for_status()
-        return response.json()
+        # API returns {"form": {...}}, unwrap to get form data directly
+        return response.json().get('form', {})
 
     except requests.exceptions.RequestException as e:
         print(f'Error: Failed to fetch form: {e}', file=sys.stderr)
@@ -542,7 +551,9 @@ def main():
         help='Remove tags instead of adding them (useful for resetting tests)',
     )
     parser.add_argument(
-        '--dry-run', action='store_true', help='Validate CSV without making API calls'
+        '--dry-run',
+        action='store_true',
+        help='Validate CSV and resolve tags without modifying data (still fetches from API)',
     )
     parser.add_argument(
         '--start-row', type=int, default=0, help='Skip first N data rows (default: 0)'
