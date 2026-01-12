@@ -37,12 +37,14 @@ Edit `config.json` with your credentials:
 
 **Environment values:**
 
-| Environment | API Base URL                                            | Token URL                                  |
-| ----------- | ------------------------------------------------------- | ------------------------------------------ |
-| `prod`      | `https://prod.execute-api.apply.avela.org/api/rest/v2`  | `https://auth.avela.org/oauth/token`       |
-| `uat`       | `https://uat.execute-api.apply.avela.org/api/rest/v2`   | `https://uat.auth.avela.org/oauth/token`   |
-| `qa`        | `https://qa.execute-api.apply.avela.org/api/rest/v2`    | `https://qa.auth.avela.org/oauth/token`    |
-| `dev`       | `https://dev.execute-api.apply.avela.org/api/rest/v2`   | `https://dev.auth.avela.org/oauth/token`   |
+| Environment | API Base URL                                            | Token URL                                    |
+| ----------- | ------------------------------------------------------- | -------------------------------------------- |
+| `prod`      | `https://prod.execute-api.apply.avela.org/api/rest/v2`  | `https://auth.avela.org/oauth/token`         |
+| `staging`   | `https://staging.execute-api.apply.avela.org/api/rest/v2` | `https://avela-staging.us.auth0.com/oauth/token` |
+| `uat`       | `https://uat.execute-api.apply.avela.org/api/rest/v2`   | `https://uat.auth.avela.org/oauth/token`     |
+| `qa`        | `https://qa.execute-api.apply.avela.org/api/rest/v2`    | `https://qa.auth.avela.org/oauth/token`      |
+| `dev`       | `https://dev.execute-api.apply.avela.org/api/rest/v2`   | `https://dev.auth.avela.org/oauth/token`     |
+| `dev2`      | `https://dev2.execute-api.apply.avela.org/api/rest/v2`  | `https://dev2.auth.avela.org/oauth/token`    |
 
 ## CSV Format
 
@@ -59,13 +61,16 @@ f5d3e20e-c05b-50fc-c7c3-b230c1951f01,b2c3d4e5-f6a7-8901-bcde-f12345678901,Inelig
 
 The script automatically looks up tag UUIDs from the API using the tag names in your CSV.
 
+**Important:** All forms in the CSV must belong to the same enrollment period. The script fetches available tags from the first form's enrollment period and uses that for all rows. If your CSV contains forms from different enrollment periods, tag resolution may fail or produce unexpected results.
+
 ## Usage
 
 ```bash
 # Import all tags from CSV
 python form_school_tags_import.py tags.csv
 
-# Validate CSV without making API calls
+# Validate CSV and resolve tag names without modifying data
+# (still authenticates and fetches form/tags from API)
 python form_school_tags_import.py tags.csv --dry-run
 
 # Test with first 10 rows
@@ -73,6 +78,9 @@ python form_school_tags_import.py tags.csv --limit 10
 
 # Skip first 100 data rows (e.g., resume after fixing rows 1-100)
 python form_school_tags_import.py tags.csv --start-row 100
+
+# Remove tags instead of adding them (useful for resetting tests)
+python form_school_tags_import.py tags.csv --delete
 ```
 
 ## Output
@@ -144,4 +152,17 @@ Content-Type: application/json
 **Responses:**
 - `201` with `{"affected_rows": 1}` - tag added
 - `201` with `{"affected_rows": 0}` - tag already exists (silently skipped)
+- `404` - form, school, or tag not found
+
+**DELETE /tags/forms/{form_id}/schools/{school_id}** - Remove tag from form-school (used with `--delete` flag)
+```
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"tag_id": "uuid-string"}
+```
+
+**Responses:**
+- `200` with `{"affected_rows": 1}` - tag removed
+- `200` with `{"affected_rows": 0}` - tag was not present
 - `404` - form, school, or tag not found

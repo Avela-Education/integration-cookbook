@@ -79,7 +79,7 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
     Args:
         client_id: OAuth2 client ID
         client_secret: OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Target environment (prod, staging, uat, qa, dev, dev2)
 
     Returns:
         Access token string
@@ -87,6 +87,10 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
     if environment == 'prod':
         token_url = 'https://auth.avela.org/oauth/token'
         audience = 'https://api.apply.avela.org/v1/graphql'
+    elif environment == 'staging':
+        # Staging uses a direct Auth0 URL (exception to the normal pattern)
+        token_url = 'https://avela-staging.us.auth0.com/oauth/token'
+        audience = 'https://staging.api.apply.avela.org/v1/graphql'
     else:
         token_url = f'https://{environment}.auth.avela.org/oauth/token'
         audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
@@ -183,7 +187,9 @@ def read_csv(
 
             # Check for Tag Name column (prefer "Tag Name", fall back to "Tag ID" for compatibility)
             if 'TAG NAME' not in headers and 'TAG ID' not in headers:
-                print('Error: CSV must have "Tag Name" column', file=sys.stderr)
+                print(
+                    'Error: CSV must have "Tag Name" or "Tag ID" column', file=sys.stderr
+                )
                 sys.exit(1)
             tag_col = 'TAG NAME' if 'TAG NAME' in headers else 'TAG ID'
 
@@ -221,8 +227,7 @@ def read_csv(
 
 def get_api_base_url(environment: str) -> str:
     """Get API base URL for environment."""
-    if environment == 'prod':
-        return 'https://prod.execute-api.apply.avela.org/api/rest/v2'
+    # All environments (including prod and staging) follow the same pattern
     return f'https://{environment}.execute-api.apply.avela.org/api/rest/v2'
 
 
