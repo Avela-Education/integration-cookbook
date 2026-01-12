@@ -2,10 +2,11 @@
 """
 Form-School Tags CSV Import
 
-Import form-school tag assignments from a CSV via the Avela Customer API.
+Import or delete form-school tag assignments from a CSV via the Avela Customer API.
 
 Usage:
     python form_school_tags_import.py tags.csv [--dry-run] [--start-row N] [--limit N]
+    python form_school_tags_import.py tags.csv --delete [--dry-run]
 
 CSV Format:
     Form ID,School ID,Tag Name
@@ -13,6 +14,8 @@ CSV Format:
 
 The script automatically looks up tag UUIDs from the API using the tag names
 provided in the CSV. Tag name matching is case-insensitive.
+
+Use --delete to remove tags instead of adding them (useful for resetting tests).
 """
 
 import argparse
@@ -393,6 +396,52 @@ def add_tag(
         return False, 0, str(e)
 
 
+def delete_tag(
+    access_token: str, environment: str, form_id: str, school_id: str, tag_id: str
+) -> tuple[bool, int, str]:
+    """
+    Remove a tag from a form-school choice via the Customer API.
+
+    Args:
+        access_token: Bearer token
+        environment: Target environment
+        form_id: Form UUID
+        school_id: School UUID
+        tag_id: Tag UUID
+
+    Returns:
+        Tuple of (success: bool, affected_rows: int, error_message: str)
+    """
+    base_url = get_api_base_url(environment)
+    url = f'{base_url}/tags/forms/{form_id}/schools/{school_id}'
+
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+    }
+
+    try:
+        response = requests.delete(
+            url, json={'tag_id': tag_id}, headers=headers, timeout=30
+        )
+
+        if response.status_code == 401:
+            return False, 0, 'Unauthorized (401)'
+
+        if response.status_code == 404:
+            return False, 0, 'Form, school, or tag not found (404)'
+
+        response.raise_for_status()
+        data = response.json()
+        affected_rows = data.get('affected_rows', 0)
+        return True, affected_rows, ''
+
+    except requests.exceptions.Timeout:
+        return False, 0, 'Request timeout'
+    except requests.exceptions.RequestException as e:
+        return False, 0, str(e)
+
+
 # =============================================================================
 # MAIN PROCESSING
 # =============================================================================
@@ -404,12 +453,13 @@ def process_tags(
     environment: str,
     tag_cache: dict[str, str],
     dry_run: bool = False,
+    delete_mode: bool = False,
 ) -> tuple[int, int, int, list[tuple[int, str]]]:
     """
     Process tag assignments from CSV records.
 
     For each record, validates the form and school UUIDs, resolves the tag name
-    to its UUID using the tag cache, then calls the API to add the tag.
+    to its UUID using the tag cache, then calls the API to add or remove the tag.
 
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
@@ -417,14 +467,20 @@ def process_tags(
         environment: Target environment (prod, uat, qa, dev)
         tag_cache: Dictionary mapping lowercase tag names to UUIDs
         dry_run: If True, validate only without making API calls
+        delete_mode: If True, remove tags instead of adding them
 
     Returns:
-        Tuple of (inserted, already_existed, error_count, errors_list)
+        Tuple of (affected, not_found, error_count, errors_list)
+        - In add mode: (inserted, already_existed, errors, error_list)
+        - In delete mode: (deleted, not_found, errors, error_list)
     """
-    inserted = 0
-    already_existed = 0
+    affected = 0  # inserted (add mode) or deleted (delete mode)
+    skipped = 0  # already_existed (add mode) or not_found (delete mode)
     errors: list[tuple[int, str]] = []
     total = len(records)
+
+    # Choose the appropriate API function
+    api_fn = delete_tag if delete_mode else add_tag
 
     for idx, (form_id, school_id, tag_name, csv_line) in enumerate(records):
         # Progress update every 100 rows or at end
@@ -447,12 +503,12 @@ def process_tags(
             continue
 
         if dry_run:
-            # In dry-run mode, count as "would be inserted"
-            inserted += 1
+            # In dry-run mode, count as "would be affected"
+            affected += 1
             continue
 
-        # Make API call to add the tag
-        success, affected_rows, error_msg = add_tag(
+        # Make API call to add or remove the tag
+        success, affected_rows, error_msg = api_fn(
             access_token, environment, form_id, school_id, tag_id
         )
 
@@ -463,18 +519,23 @@ def process_tags(
                 sys.exit(1)
             errors.append((csv_line, error_msg))
         elif affected_rows > 0:
-            inserted += 1
+            affected += 1
         else:
-            already_existed += 1
+            skipped += 1
 
-    return inserted, already_existed, len(errors), errors
+    return affected, skipped, len(errors), errors
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Import form-school tag assignments from CSV via Avela Customer API'
+        description='Import or delete form-school tag assignments from CSV via Avela Customer API'
     )
     parser.add_argument('csv_file', help='Path to CSV file')
+    parser.add_argument(
+        '--delete',
+        action='store_true',
+        help='Remove tags instead of adding them (useful for resetting tests)',
+    )
     parser.add_argument(
         '--dry-run', action='store_true', help='Validate CSV without making API calls'
     )
@@ -493,6 +554,12 @@ def main():
     # Load configuration
     config = load_config(args.config)
 
+    # Display mode information
+    if args.delete:
+        print(
+            'DELETE MODE - Will remove tags from form-school combinations',
+            file=sys.stderr,
+        )
     if args.dry_run:
         print('DRY RUN MODE - Will validate but not modify data', file=sys.stderr)
 
@@ -537,19 +604,25 @@ def main():
     print(f'✓ Found {len(tag_cache)} tags', file=sys.stderr)
 
     # Process tags using the cached lookup
-    print('\nProcessing...', file=sys.stderr)
-    inserted, already_existed, error_count, errors = process_tags(
-        records, access_token, config['environment'], tag_cache, args.dry_run
+    action = 'Deleting' if args.delete else 'Processing'
+    print(f'\n{action}...', file=sys.stderr)
+    affected, skipped, error_count, errors = process_tags(
+        records, access_token, config['environment'], tag_cache, args.dry_run, args.delete
     )
 
-    # Print results
+    # Print results with labels appropriate to the mode
     print('\nResults:', file=sys.stderr)
     if args.dry_run:
-        print(f'  Would insert: {inserted:,}', file=sys.stderr)
+        action_label = 'Would delete' if args.delete else 'Would insert'
+        print(f'  {action_label}: {affected:,}', file=sys.stderr)
         print(f'  Validation errors: {error_count:,}', file=sys.stderr)
+    elif args.delete:
+        print(f'  Deleted: {affected:,}', file=sys.stderr)
+        print(f'  Not found (already removed): {skipped:,}', file=sys.stderr)
+        print(f'  Errors: {error_count:,}', file=sys.stderr)
     else:
-        print(f'  Inserted: {inserted:,}', file=sys.stderr)
-        print(f'  Already existed: {already_existed:,}', file=sys.stderr)
+        print(f'  Inserted: {affected:,}', file=sys.stderr)
+        print(f'  Already existed: {skipped:,}', file=sys.stderr)
         print(f'  Errors: {error_count:,}', file=sys.stderr)
 
     # Print errors
