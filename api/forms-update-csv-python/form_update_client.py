@@ -12,6 +12,7 @@ Author: Avela Education
 License: MIT
 """
 
+import argparse
 import csv
 import json
 import sys
@@ -224,6 +225,7 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
         'Number': 'number',
         'Date': 'date',
         'SingleSelect': 'single_select',
+        'MultiSelect': 'multi_select',
         'Address': 'address',
     }
 
@@ -239,6 +241,16 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
             return {answer_key: {'value': float(answer_value)}}
         except ValueError:
             return {answer_key: {'value': answer_value}}
+
+    # For MultiSelect, answer is just {'options': [...]} (not nested under multi_select)
+    # Options can match by id, label, or value - only include fields that have real values
+    if question_type == 'MultiSelect':
+        if not answer_value:
+            return {'options': []}
+        # Split comma-separated values and create option objects
+        # Use 'value' field to match (same as SingleSelect) - API matches by id, label, or value
+        option_objects = [{'value': val.strip()} for val in answer_value.split(',')]
+        return {'options': option_objects}
 
     # Default fallback to free_text
     return {'free_text': {'value': answer_value}}
@@ -337,7 +349,7 @@ def read_csv_updates(csv_path: str) -> list[dict]:
 
 
 def process_csv_updates(
-    access_token: str, environment: str, csv_path: str
+    access_token: str, environment: str, csv_path: str, dry_run: bool = False
 ) -> tuple[int, int]:
     """
     Process all form updates from a CSV file.
@@ -352,6 +364,7 @@ def process_csv_updates(
         access_token: Bearer token from authentication
         environment: Target environment (prod, qa, uat, dev)
         csv_path: Path to the CSV file
+        dry_run: If True, print what would be sent without making API calls
 
     Returns:
         Tuple of (successful_updates, failed_updates)
@@ -396,16 +409,22 @@ def process_csv_updates(
             )
 
             print(f'  • {question_key} ({question_type}) = "{answer_value}"')
+            if dry_run:
+                print(f'    → {answer_obj}')
 
-        # Update all questions in a single API call
-        print(f'  Submitting {len(questions)} question(s) to API...', end=' ')
-        success = update_form_questions(access_token, environment, form_id, questions)
-
-        if success:
-            print('✓')
+        if dry_run:
+            print(f'  [DRY RUN] Would submit {len(questions)} question(s) to API')
             successful += len(form_updates)
         else:
-            failed += len(form_updates)
+            # Update all questions in a single API call
+            print(f'  Submitting {len(questions)} question(s) to API...', end=' ')
+            success = update_form_questions(access_token, environment, form_id, questions)
+
+            if success:
+                print('✓')
+                successful += len(form_updates)
+            else:
+                failed += len(form_updates)
 
         print()  # Blank line between forms
 
@@ -427,8 +446,26 @@ def main():
     3. Process CSV updates
     4. Report results
     """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Update form answers in bulk from a CSV file'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Print what would be sent without making API calls',
+    )
+    parser.add_argument(
+        '--csv',
+        default='sample_updates.csv',
+        help='Path to CSV file (default: sample_updates.csv)',
+    )
+    args = parser.parse_args()
+
     print('=' * 80)
     print('AVELA FORM SERVICE API - UPDATE ANSWERS FROM CSV')
+    if args.dry_run:
+        print('[DRY RUN MODE - No changes will be made]')
     print('=' * 80)
     print()
 
@@ -439,14 +476,18 @@ def main():
     client_secret = config['client_secret']
     environment = config['environment']
 
-    # Step 2: Authenticate and get access token
-    access_token = get_access_token(client_id, client_secret, environment)
+    # Step 2: Authenticate and get access token (skip in dry-run mode)
+    if args.dry_run:
+        print(f'[DRY RUN] Skipping authentication (environment: {environment})')
+        access_token = 'dry-run-token'
+    else:
+        access_token = get_access_token(client_id, client_secret, environment)
     print()
 
     # Step 3: Process updates from CSV
-    csv_path = 'sample_updates.csv'
-
-    successful, failed = process_csv_updates(access_token, environment, csv_path)
+    successful, failed = process_csv_updates(
+        access_token, environment, args.csv, dry_run=args.dry_run
+    )
 
     # Step 4: Report results
     print('=' * 80)
@@ -466,10 +507,13 @@ if __name__ == '__main__':
     Entry point when script is run directly.
 
     Usage:
-        python form_update_client.py
+        python form_update_client.py                    # Run with sample_updates.csv
+        python form_update_client.py --dry-run          # Test without making API calls
+        python form_update_client.py --csv myfile.csv   # Use a different CSV file
+        python form_update_client.py --dry-run --csv /path/to/test.csv
 
     Make sure you have:
     1. Created a 'config.json' file with your credentials
-    2. Created a 'sample_updates.csv' file with your updates
+    2. Created a CSV file with your updates (or use sample_updates.csv)
     """
     main()
