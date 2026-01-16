@@ -252,6 +252,22 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
         option_objects = [{'value': val.strip()} for val in answer_value.split(',')]
         return {'options': option_objects}
 
+    # For Address, parse pipe-delimited format: street1|street2|city|state|zip
+    if question_type == 'Address':
+        parts = answer_value.split('|')
+        address_obj = {}
+        if len(parts) >= 1 and parts[0].strip():
+            address_obj['street_address'] = parts[0].strip()
+        if len(parts) >= 2 and parts[1].strip():
+            address_obj['street_address_line_2'] = parts[1].strip()
+        if len(parts) >= 3 and parts[2].strip():
+            address_obj['city'] = parts[2].strip()
+        if len(parts) >= 4 and parts[3].strip():
+            address_obj['state'] = parts[3].strip()
+        if len(parts) >= 5 and parts[4].strip():
+            address_obj['zip_code'] = parts[4].strip()
+        return {answer_key: address_obj}
+
     # Default fallback to free_text
     return {'free_text': {'value': answer_value}}
 
