@@ -75,7 +75,7 @@ f5d3e20e-c05b-50fc-c7c3-b230c0951fa1,grade_level,Number,9
 **CSV Format:**
 - `form_id` - The UUID of the form instance to update
 - `question_key` - The key of the question (e.g., "internal1", "student_name")
-- `question_type` - The type of question (FreeText, Email, PhoneNumber, Number, Date, SingleSelect, MultiSelect)
+- `question_type` - The type of question (FreeText, Email, PhoneNumber, Number, Date, SingleSelect, MultiSelect, Address)
 - `answer_value` - The new answer value to set
 
 **Note:** The `question_type` column is optional and defaults to "FreeText" if not provided.
@@ -108,15 +108,16 @@ RESULTS: ✓ Successful: 3 | Failed: 0
 
 ## Question Types
 
-| Type         | CSV Example                              | Notes                                       |
-|--------------|------------------------------------------|---------------------------------------------|
-| FreeText     | `internal1,FreeText,John Doe`            | Default if type omitted                     |
-| Email        | `contact,Email,john@example.com`         | Must be valid email                         |
-| PhoneNumber  | `phone,PhoneNumber,555-0123`             |                                             |
-| Number       | `age,Number,42`                          | Must be numeric                             |
-| Date         | `dob,Date,2024-03-15`                    | Format: YYYY-MM-DD                          |
-| SingleSelect | `choice,SingleSelect,option-value`       | Use option value (not label)                |
-| MultiSelect  | `choice,MultiSelect,val1,val2,val3`      | Comma-separated option values; empty clears |
+| Type         | CSV Example                                        | Notes                                            |
+|--------------|----------------------------------------------------|--------------------------------------------------|
+| FreeText     | `internal1,FreeText,John Doe`                      | Default if type omitted                          |
+| Email        | `contact,Email,john@example.com`                   | Must be valid email                              |
+| PhoneNumber  | `phone,PhoneNumber,555-0123`                       |                                                  |
+| Number       | `age,Number,42`                                    | Must be numeric                                  |
+| Date         | `dob,Date,2024-03-15`                              | Format: YYYY-MM-DD                               |
+| SingleSelect | `choice,SingleSelect,option-value`                 | Use option value (not label)                     |
+| MultiSelect  | `choice,MultiSelect,val1,val2,val3`                | Comma-separated option values; empty clears      |
+| Address      | `addr,Address,123 Main St\|Apt 2\|City\|ST\|12345` | Pipe-delimited: street1\|street2\|city\|state\|zip |
 
 ## Common Issues
 
@@ -176,14 +177,7 @@ RESULTS: ✓ Successful: 3 | Failed: 0
 
 ### Adding More Question Types
 
-To support additional question types like Address with full structure, extend the `build_answer_object()` function in the script:
-
-```python
-# For Address with full structure (JSON in CSV)
-if question_type == 'Address':
-    address_data = json.loads(answer_value)
-    return {'address': address_data}
-```
+To support additional question types, extend the `build_answer_object()` function in the script. See existing implementations for FreeText, Number, MultiSelect, and Address as examples.
 
 ### Adding Retry Logic
 
