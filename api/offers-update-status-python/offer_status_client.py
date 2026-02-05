@@ -11,8 +11,6 @@ Author: Avela Education
 License: MIT
 """
 
-VALID_ENVIRONMENTS = {'dev', 'qa', 'uat', 'prod'}
-
 import argparse
 import csv
 import json
@@ -20,6 +18,8 @@ import sys
 from pathlib import Path
 
 import requests
+
+VALID_ENVIRONMENTS = {'dev', 'qa', 'uat', 'prod'}
 
 # =============================================================================
 # CONFIGURATION LOADING
@@ -191,7 +191,7 @@ def accept_offers(access_token: str, environment: str, offer_ids: list[str]) -> 
         return result.get('data', {}).get('success', False)
 
     except requests.exceptions.RequestException as e:
-        print(f'  Failed to accept offers!')
+        print('  Failed to accept offers!')
         print(f'  Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'  Response: {e.response.text}')
@@ -230,7 +230,7 @@ def decline_offers(access_token: str, environment: str, offer_ids: list[str]) ->
         return result.get('data', {}).get('success', False)
 
     except requests.exceptions.RequestException as e:
-        print(f'  Failed to decline offers!')
+        print('  Failed to decline offers!')
         print(f'  Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'  Response: {e.response.text}')
