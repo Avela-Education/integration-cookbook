@@ -121,3 +121,6 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Personal notes
+standup.md
