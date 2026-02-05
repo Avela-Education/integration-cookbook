@@ -288,13 +288,17 @@ def read_csv_updates(csv_path: str) -> list[dict]:
 
                 action = row.get('action', '').strip().lower()
                 if action not in ['accept', 'decline']:
-                    print(f'Warning: Row {row_num} has invalid action "{action}", skipping')
+                    print(
+                        f'Warning: Row {row_num} has invalid action "{action}", skipping'
+                    )
                     continue
 
-                updates.append({
-                    'offer_id': row['offer_id'].strip(),
-                    'action': action,
-                })
+                updates.append(
+                    {
+                        'offer_id': row['offer_id'].strip(),
+                        'action': action,
+                    }
+                )
 
         print(f'Read {len(updates)} updates from CSV file')
         return updates
