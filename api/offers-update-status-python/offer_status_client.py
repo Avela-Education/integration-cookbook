@@ -5,7 +5,7 @@ Avela Offer Status Update Script
 This script demonstrates how to:
 1. Authenticate with the Avela API using OAuth2 client credentials
 2. Read offer updates from a CSV file
-3. Update offer statuses (accept/decline) via the Form Service API
+3. Update offer statuses (accept/decline) via the Customer API v2
 
 Author: Avela Education
 License: MIT
@@ -144,44 +144,50 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
 # =============================================================================
 
 
-def get_form_service_base_url(environment: str) -> str:
+def get_customer_api_base_url(environment: str) -> str:
     """
-    Get the Form Service base URL for the given environment.
+    Get the Customer API v2 base URL for the given environment.
 
     Args:
         environment: Target environment (prod, qa, uat, dev)
 
     Returns:
-        Base URL for the Form Service API
+        Base URL for the Customer API v2
     """
     if environment == 'prod':
-        return 'https://forms.services.avela.org/v1/'
-    return f'https://{environment}.forms.services.avela.org/v1/'
+        return 'https://execute-api.apply.avela.org/api/rest/v2/'
+    return f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
 
 
-def accept_offers(access_token: str, environment: str, offer_ids: list[str]) -> bool:
+def update_offer_status(
+    access_token: str, environment: str, offer_ids: list[str], status: str
+) -> bool:
     """
-    Accept multiple offers in bulk.
+    Update status for multiple offers.
 
-    Uses the PUT /admin/forms/offers/accept endpoint.
+    Uses the PUT /forms/offers/status endpoint.
 
     Args:
         access_token: Bearer token from authentication
         environment: Target environment (prod, qa, uat, dev)
-        offer_ids: List of offer UUIDs to accept
+        offer_ids: List of offer UUIDs to update
+        status: "Accepted" or "Declined"
 
     Returns:
         True if successful, False otherwise
     """
-    base_url = get_form_service_base_url(environment)
-    url = f'{base_url}admin/forms/offers/accept'
+    base_url = get_customer_api_base_url(environment)
+    url = f'{base_url}forms/offers/status'
 
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
     }
 
-    payload = [{'offer_id': offer_id} for offer_id in offer_ids]
+    payload = {
+        'offers': [{'offer_id': offer_id} for offer_id in offer_ids],
+        'status': status,
+    }
 
     try:
         response = requests.put(url, headers=headers, json=payload, timeout=30)
@@ -191,46 +197,7 @@ def accept_offers(access_token: str, environment: str, offer_ids: list[str]) -> 
         return result.get('data', {}).get('success', False)
 
     except requests.exceptions.RequestException as e:
-        print('  Failed to accept offers!')
-        print(f'  Details: {e}')
-        if hasattr(e, 'response') and e.response is not None:
-            print(f'  Response: {e.response.text}')
-        return False
-
-
-def decline_offers(access_token: str, environment: str, offer_ids: list[str]) -> bool:
-    """
-    Decline multiple offers in bulk.
-
-    Uses the PUT /admin/forms/offers/decline endpoint.
-
-    Args:
-        access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
-        offer_ids: List of offer UUIDs to decline
-
-    Returns:
-        True if successful, False otherwise
-    """
-    base_url = get_form_service_base_url(environment)
-    url = f'{base_url}admin/forms/offers/decline'
-
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-    }
-
-    payload = [{'offer_id': offer_id} for offer_id in offer_ids]
-
-    try:
-        response = requests.put(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-
-        result = response.json()
-        return result.get('data', {}).get('success', False)
-
-    except requests.exceptions.RequestException as e:
-        print('  Failed to decline offers!')
+        print(f'  Failed to update offers to {status}!')
         print(f'  Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'  Response: {e.response.text}')
@@ -361,7 +328,7 @@ def process_csv_updates(
             print(f'  [DRY RUN] Would accept {len(accept_ids)} offer(s)')
             successful += len(accept_ids)
         else:
-            if accept_offers(access_token, environment, accept_ids):
+            if update_offer_status(access_token, environment, accept_ids, 'Accepted'):
                 print(f'  Successfully accepted {len(accept_ids)} offer(s)')
                 successful += len(accept_ids)
             else:
@@ -378,7 +345,7 @@ def process_csv_updates(
             print(f'  [DRY RUN] Would decline {len(decline_ids)} offer(s)')
             successful += len(decline_ids)
         else:
-            if decline_offers(access_token, environment, decline_ids):
+            if update_offer_status(access_token, environment, decline_ids, 'Declined'):
                 print(f'  Successfully declined {len(decline_ids)} offer(s)')
                 successful += len(decline_ids)
             else:
