@@ -59,6 +59,7 @@ Programmatic access to Avela data and functionality. Browse all recipes in the [
 - [**Fetch All Applicants (Python)**](api/applicants-fetch-all-python/) - Retrieve and export applicant data with automatic pagination
 - [**Update Forms from CSV (Python)**](api/forms-update-csv-python/) - Bulk update form answers by reading from a CSV file
 - [**Download Form Files (Python)**](api/forms-download-files-python/) - Batch download file attachments from forms
+- [**Update Offer Status (Python)**](api/offers-update-status-python/) - Bulk accept or decline offers from a CSV file
 
 ## 🛠️ Prerequisites
 
