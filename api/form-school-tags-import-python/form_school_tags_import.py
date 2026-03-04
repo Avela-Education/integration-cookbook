@@ -7,9 +7,11 @@ Avela Customer API v2. Tags are specified by name (not UUID) and automatically
 resolved via the API.
 
 Usage:
-    python form_school_tags_import.py tags.csv                    # Add tags
+    python form_school_tags_import.py tags.csv                    # Add tags (batch mode)
     python form_school_tags_import.py tags.csv --dry-run          # Validate only
-    python form_school_tags_import.py tags.csv --delete           # Remove tags
+    python form_school_tags_import.py tags.csv --delete           # Remove tags (batch)
+    python form_school_tags_import.py tags.csv --sequential       # One-at-a-time fallback
+    python form_school_tags_import.py tags.csv --batch-size 50    # Custom batch size
     python form_school_tags_import.py tags.csv --limit 10         # Test with 10 rows
     python form_school_tags_import.py tags.csv --start-row 100    # Resume from row 100
 
@@ -269,11 +271,181 @@ def delete_tag(
 
 
 # =============================================================================
+# BATCH API OPERATIONS
+# =============================================================================
+
+
+def chunk_operations(
+    records: list[tuple[str, str, str, int]],
+    tag_cache: dict[str, str],
+    chunk_size: int = 100,
+) -> tuple[list[list[dict]], list[tuple[int, str]]]:
+    """
+    Validate CSV records and split into batch-sized chunks.
+
+    Args:
+        records: List of (form_id, school_id, tag_name, csv_line) tuples
+        tag_cache: Dictionary mapping lowercase tag names to UUIDs
+        chunk_size: Max operations per batch (default: 100, API max: 100)
+
+    Returns:
+        Tuple of (chunks, validation_errors) where each chunk is a list of
+        {"form_id", "school_id", "tag_id", "csv_line"} dicts
+    """
+    validated: list[dict] = []
+    errors: list[tuple[int, str]] = []
+
+    for form_id, school_id, tag_name, csv_line in records:
+        if not validate_uuid(form_id):
+            errors.append((csv_line, f'Invalid UUID in Form ID: {form_id}'))
+            continue
+        if not validate_uuid(school_id):
+            errors.append((csv_line, f'Invalid UUID in School ID: {school_id}'))
+            continue
+
+        tag_id, tag_error = resolve_tag_name(tag_name, tag_cache)
+        if tag_error:
+            errors.append((csv_line, tag_error))
+            continue
+
+        validated.append({
+            'form_id': form_id,
+            'school_id': school_id,
+            'tag_id': tag_id,
+            'csv_line': csv_line,
+        })
+
+    chunks = [validated[i : i + chunk_size] for i in range(0, len(validated), chunk_size)]
+    return chunks, errors
+
+
+def _parse_batch_response(
+    response_data: dict, operations: list[dict]
+) -> tuple[int, int, list[tuple[int, str]]]:
+    """
+    Parse a 207 Multi-Status batch response.
+
+    Returns:
+        Tuple of (affected_count, skipped_count, errors_list)
+    """
+    affected = 0
+    skipped = 0
+    errors: list[tuple[int, str]] = []
+
+    responses = response_data.get('responses', [])
+    # Build a lookup of csv_lines per tag_id for error reporting
+    lines_by_tag: dict[str, list[int]] = {}
+    for op in operations:
+        lines_by_tag.setdefault(op['tag_id'], []).append(op['csv_line'])
+
+    for resp in responses:
+        tag_id = resp.get('tag_id', '')
+        status = str(resp.get('status', ''))
+        csv_lines = lines_by_tag.get(tag_id, [])
+
+        if status.startswith('2'):
+            affected += resp.get('affected_rows', 0)
+            requested = resp.get('requested', 0)
+            if not resp.get('fully_applied', True):
+                skipped += requested - resp.get('affected_rows', 0)
+        else:
+            error_msg = resp.get('error', f'Batch error (status {status})')
+            for line in csv_lines:
+                errors.append((line, f'{error_msg} [tag_id={tag_id[:8]}...]'))
+
+    return affected, skipped, errors
+
+
+def add_tags_batch(
+    client: AvelaClient, operations: list[dict]
+) -> tuple[int, int, list[tuple[int, str]]]:
+    """
+    Add tags via the batch endpoint.
+
+    Args:
+        client: Authenticated AvelaClient
+        operations: List of {"form_id", "school_id", "tag_id", "csv_line"}
+
+    Returns:
+        Tuple of (affected_count, skipped_count, errors_list)
+    """
+    try:
+        response = client.post(
+            '/tags/schools/batch',
+            json={
+                'operations': [
+                    {
+                        'form_id': op['form_id'],
+                        'school_id': op['school_id'],
+                        'tag_id': op['tag_id'],
+                    }
+                    for op in operations
+                ]
+            },
+        )
+
+        if response.status_code == 401:
+            return 0, 0, [(operations[0]['csv_line'], 'Unauthorized (401)')]
+
+        if response.status_code not in (200, 207):
+            return 0, 0, [
+                (operations[0]['csv_line'], f'Unexpected status {response.status_code}')
+            ]
+
+        return _parse_batch_response(response.json(), operations)
+
+    except Exception as e:
+        return 0, 0, [(operations[0]['csv_line'], str(e))]
+
+
+def delete_tags_batch(
+    client: AvelaClient, operations: list[dict]
+) -> tuple[int, int, list[tuple[int, str]]]:
+    """
+    Delete tags via the batch endpoint.
+
+    Args:
+        client: Authenticated AvelaClient
+        operations: List of {"form_id", "school_id", "tag_id", "csv_line"}
+
+    Returns:
+        Tuple of (affected_count, skipped_count, errors_list)
+    """
+    try:
+        response = client.delete(
+            '/tags/schools/batch',
+            json={
+                'operations': [
+                    {
+                        'form_id': op['form_id'],
+                        'school_id': op['school_id'],
+                        'tag_id': op['tag_id'],
+                    }
+                    for op in operations
+                ]
+            },
+        )
+
+        if response.status_code == 401:
+            return 0, 0, [(operations[0]['csv_line'], 'Unauthorized (401)')]
+
+        if response.status_code not in (200, 207):
+            return 0, 0, [
+                (operations[0]['csv_line'], f'Unexpected status {response.status_code}')
+            ]
+
+        return _parse_batch_response(response.json(), operations)
+
+    except Exception as e:
+        return 0, 0, [(operations[0]['csv_line'], str(e))]
+
+
+# =============================================================================
 # MAIN PROCESSING
 # =============================================================================
 
 
-def process_tags(
+def process_tags_sequential(
     records: list[tuple[str, str, str, int]],
     client: AvelaClient,
     tag_cache: dict[str, str],
@@ -281,7 +453,7 @@ def process_tags(
     delete_mode: bool = False,
 ) -> tuple[int, int, int, list[tuple[int, str]]]:
     """
-    Process tag assignments from CSV records.
+    Process tag assignments one at a time (legacy sequential mode).
 
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
@@ -342,6 +514,98 @@ def process_tags(
     return affected, skipped, len(errors), errors
 
 
+def process_tags_batch(
+    records: list[tuple[str, str, str, int]],
+    client: AvelaClient,
+    tag_cache: dict[str, str],
+    dry_run: bool = False,
+    delete_mode: bool = False,
+    batch_size: int = 100,
+) -> tuple[int, int, int, list[tuple[int, str]]]:
+    """
+    Process tag assignments using batch API endpoints.
+
+    Args:
+        records: List of (form_id, school_id, tag_name, csv_line) tuples
+        client: Authenticated AvelaClient instance
+        tag_cache: Dictionary mapping lowercase tag names to UUIDs
+        dry_run: If True, validate only without making API calls
+        delete_mode: If True, remove tags instead of adding them
+        batch_size: Max operations per batch request (default/max: 100)
+
+    Returns:
+        Tuple of (affected, skipped, error_count, errors_list)
+    """
+    # Validate all records and split into chunks
+    chunks, validation_errors = chunk_operations(records, tag_cache, batch_size)
+    valid_count = sum(len(c) for c in chunks)
+
+    print(
+        f'  Validated: {valid_count:,} operations in {len(chunks)} batch(es)',
+        file=sys.stderr,
+    )
+    if validation_errors:
+        print(
+            f'  Validation errors: {len(validation_errors):,} (will be skipped)',
+            file=sys.stderr,
+        )
+
+    if dry_run:
+        return valid_count, 0, len(validation_errors), validation_errors
+
+    # Process each batch
+    affected = 0
+    skipped = 0
+    errors = list(validation_errors)
+    batch_fn = delete_tags_batch if delete_mode else add_tags_batch
+
+    for batch_idx, chunk in enumerate(chunks):
+        ops_so_far = sum(len(chunks[i]) for i in range(batch_idx + 1))
+        print(
+            f'  Batch {batch_idx + 1}/{len(chunks)} '
+            f'({ops_so_far:,}/{valid_count:,} operations)...',
+            file=sys.stderr,
+        )
+
+        batch_affected, batch_skipped, batch_errors = batch_fn(client, chunk)
+
+        # Stop on auth failure
+        if batch_errors and any('Unauthorized' in e[1] for e in batch_errors):
+            print('\nError: Unauthorized (401)', file=sys.stderr)
+            print('Stopping due to authentication failure.', file=sys.stderr)
+            sys.exit(1)
+
+        affected += batch_affected
+        skipped += batch_skipped
+        errors.extend(batch_errors)
+
+    return affected, skipped, len(errors), errors
+
+
+def process_tags(
+    records: list[tuple[str, str, str, int]],
+    client: AvelaClient,
+    tag_cache: dict[str, str],
+    dry_run: bool = False,
+    delete_mode: bool = False,
+    sequential: bool = False,
+    batch_size: int = 100,
+) -> tuple[int, int, int, list[tuple[int, str]]]:
+    """
+    Process tag assignments from CSV records.
+
+    Uses batch API by default. Pass sequential=True to fall back to
+    single-item API calls.
+    """
+    if sequential:
+        return process_tags_sequential(
+            records, client, tag_cache, dry_run, delete_mode
+        )
+    return process_tags_batch(
+        records, client, tag_cache, dry_run, delete_mode, batch_size
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Import or delete form-school tag assignments from CSV via Avela Customer API'
@@ -362,12 +626,26 @@ def main():
     )
     parser.add_argument('--limit', type=int, default=None, help='Process only N rows')
     parser.add_argument(
+        '--sequential',
+        action='store_true',
+        help='Use single-item API calls instead of batch (slower, for debugging)',
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=100,
+        help='Operations per batch request (default: 100, max: 100)',
+    )
+    parser.add_argument(
         '--config',
         default='config.json',
         help='Path to config file (default: config.json)',
     )
 
     args = parser.parse_args()
+
+    # Clamp batch size
+    args.batch_size = min(max(args.batch_size, 1), 100)
 
     # Display mode information
     if args.delete:
@@ -377,6 +655,10 @@ def main():
         )
     if args.dry_run:
         print('DRY RUN MODE - Will validate but not modify data', file=sys.stderr)
+    if args.sequential:
+        print('SEQUENTIAL MODE - Using single-item API calls', file=sys.stderr)
+    else:
+        print(f'BATCH MODE - Up to {args.batch_size} operations per request', file=sys.stderr)
 
     # Create client from config (handles authentication automatically)
     try:
@@ -425,7 +707,8 @@ def main():
     action = 'Deleting' if args.delete else 'Processing'
     print(f'\n{action}...', file=sys.stderr)
     affected, skipped, error_count, errors = process_tags(
-        records, client, tag_cache, args.dry_run, args.delete
+        records, client, tag_cache, args.dry_run, args.delete,
+        args.sequential, args.batch_size,
     )
 
     # Print results

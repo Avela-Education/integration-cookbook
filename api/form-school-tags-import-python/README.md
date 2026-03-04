@@ -71,7 +71,7 @@ The script automatically looks up tag UUIDs from the API using the tag names in 
 ## Usage
 
 ```bash
-# Import all tags from CSV
+# Import all tags from CSV (uses batch API by default)
 python form_school_tags_import.py tags.csv
 
 # Validate CSV and resolve tag names without modifying data
@@ -86,21 +86,62 @@ python form_school_tags_import.py tags.csv --start-row 100
 
 # Remove tags instead of adding them (useful for resetting tests)
 python form_school_tags_import.py tags.csv --delete
+
+# Use single-item API calls instead of batch (slower, for debugging)
+python form_school_tags_import.py tags.csv --sequential
+
+# Custom batch size (default: 100, max: 100)
+python form_school_tags_import.py tags.csv --batch-size 50
 ```
+
+### Batch vs Sequential Mode
+
+By default, the script uses **batch mode**, sending up to 100 operations per API request. This is dramatically faster for large imports:
+
+| Rows   | Sequential (~3.3s/row) | Batch (100/request) |
+| ------ | ---------------------- | ------------------- |
+| 100    | ~5.5 min               | ~1 request (~1s)    |
+| 1,000  | ~55 min                | ~10 requests (~10s) |
+| 6,000+ | ~5.9 hours             | ~60 requests (~1m)  |
+
+Use `--sequential` to fall back to the legacy one-at-a-time behavior (useful for debugging or if the batch endpoint is unavailable).
 
 ## Output
 
+### Batch Mode (default)
+
 ```
-Authenticating with Avela API (prod)...
-✓ Authentication successful
+BATCH MODE - Up to 100 operations per request
 
 Reading CSV: tags.csv
-✓ Found 1,500 rows to process
+Found 1,500 rows to process
 
 Fetching enrollment period from form: e4c2f10d...
-✓ Enrollment period: 26f92532...
+Enrollment period: 26f92532...
 Fetching available tags...
-✓ Found 15 tags
+Found 15 tags
+
+Processing...
+  Validated: 1,480 operations in 15 batch(es)
+  Validation errors: 20 (will be skipped)
+  Batch 1/15 (100/1,480 operations)...
+  Batch 2/15 (200/1,480 operations)...
+  ...
+  Batch 15/15 (1,480/1,480 operations)...
+
+Results:
+  Inserted: 1,200
+  Already existed: 280
+  Errors: 20
+
+Errors:
+  Line 89: Tag 'Unknown Tag' not found. Available: eligible for lottery, ...
+```
+
+### Sequential Mode
+
+```
+SEQUENTIAL MODE - Using single-item API calls
 
 Processing...
   500/1500 (33%)...
@@ -111,10 +152,6 @@ Results:
   Inserted: 1,200
   Already existed: 280
   Errors: 20
-
-Errors:
-  Line 45: Form, school, or tag not found (404)
-  Line 89: Tag 'Unknown Tag' not found. Available: eligible for lottery, ...
 ```
 
 **Note:** Row numbers refer to CSV line numbers (line 1 = header, line 2 = first data row).
@@ -125,7 +162,8 @@ Errors:
 2. **Read CSV** - Loads form IDs, school IDs, and tag names from your CSV
 3. **Fetch Enrollment Period** - Gets the enrollment period from the first form
 4. **Fetch Tags** - Loads all available tags for that enrollment period into a cache
-5. **Process Rows** - For each row, resolves the tag name to its UUID and calls the API
+5. **Validate & Batch** - Validates all rows (UUIDs, tag names), then groups into batches of up to 100
+6. **Send Batches** - Sends each batch to the API; handles partial success per tag group
 
 Tag name matching is case-insensitive ("Eligible For Lottery" matches "eligible for lottery").
 
@@ -144,31 +182,48 @@ Tag name matching is case-insensitive ("Eligible For Lottery" matches "eligible 
 
 This script uses the following API endpoints:
 
+### Setup Endpoints
+
 **GET /forms/{form_id}** - Fetch form to get enrollment period
 **GET /tags** - Fetch all tags for the enrollment period
 
-**POST /tags/forms/{form_id}/schools/{school_id}** - Add tag to form-school
-```
-Authorization: Bearer <token>
-Content-Type: application/json
+### Batch Endpoints (default)
 
+**POST /tags/schools/batch** - Add tags in bulk (up to 100 per request)
+```json
+{
+  "operations": [
+    {"form_id": "uuid-1", "school_id": "uuid-a", "tag_id": "uuid-x"},
+    {"form_id": "uuid-2", "school_id": "uuid-b", "tag_id": "uuid-x"}
+  ]
+}
+```
+
+**DELETE /tags/schools/batch** - Remove tags in bulk (used with `--delete` flag)
+
+**Responses (207 Multi-Status):**
+Results are grouped by `tag_id`:
+```json
+{
+  "responses": [
+    {"status": "201", "tag_id": "uuid-x", "affected_rows": 2, "requested": 2, "fully_applied": true},
+    {"status": "404", "tag_id": "uuid-y", "error": "Tag not found", "requested": 1}
+  ]
+}
+```
+
+- `fully_applied: true` - all operations for this tag succeeded
+- `fully_applied: false` - some operations skipped (duplicates or invalid pairs)
+- One tag group failing does not affect others in the same batch
+
+### Sequential Endpoints (with `--sequential` flag)
+
+**POST /tags/forms/{form_id}/schools/{school_id}** - Add a single tag
+```json
 {"tag_id": "uuid-string"}
 ```
 
-**Responses:**
-- `201` with `{"affected_rows": 1}` - tag added
-- `201` with `{"affected_rows": 0}` - tag already exists (silently skipped)
-- `404` - form, school, or tag not found
-
-**DELETE /tags/forms/{form_id}/schools/{school_id}** - Remove tag from form-school (used with `--delete` flag)
-```
-Authorization: Bearer <token>
-Content-Type: application/json
-
+**DELETE /tags/forms/{form_id}/schools/{school_id}** - Remove a single tag (with `--delete`)
+```json
 {"tag_id": "uuid-string"}
 ```
-
-**Responses:**
-- `200` with `{"affected_rows": 1}` - tag removed
-- `200` with `{"affected_rows": 0}` - tag was not present
-- `404` - form, school, or tag not found
