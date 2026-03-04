@@ -308,12 +308,14 @@ def chunk_operations(
             errors.append((csv_line, tag_error))
             continue
 
-        validated.append({
-            'form_id': form_id,
-            'school_id': school_id,
-            'tag_id': tag_id,
-            'csv_line': csv_line,
-        })
+        validated.append(
+            {
+                'form_id': form_id,
+                'school_id': school_id,
+                'tag_id': tag_id,
+                'csv_line': csv_line,
+            }
+        )
 
     chunks = [validated[i : i + chunk_size] for i in range(0, len(validated), chunk_size)]
     return chunks, errors
@@ -388,9 +390,16 @@ def add_tags_batch(
             return 0, 0, [(operations[0]['csv_line'], 'Unauthorized (401)')]
 
         if response.status_code not in (200, 207):
-            return 0, 0, [
-                (operations[0]['csv_line'], f'Unexpected status {response.status_code}')
-            ]
+            return (
+                0,
+                0,
+                [
+                    (
+                        operations[0]['csv_line'],
+                        f'Unexpected status {response.status_code}',
+                    )
+                ],
+            )
 
         return _parse_batch_response(response.json(), operations)
 
@@ -430,9 +439,16 @@ def delete_tags_batch(
             return 0, 0, [(operations[0]['csv_line'], 'Unauthorized (401)')]
 
         if response.status_code not in (200, 207):
-            return 0, 0, [
-                (operations[0]['csv_line'], f'Unexpected status {response.status_code}')
-            ]
+            return (
+                0,
+                0,
+                [
+                    (
+                        operations[0]['csv_line'],
+                        f'Unexpected status {response.status_code}',
+                    )
+                ],
+            )
 
         return _parse_batch_response(response.json(), operations)
 
@@ -598,9 +614,7 @@ def process_tags(
     single-item API calls.
     """
     if sequential:
-        return process_tags_sequential(
-            records, client, tag_cache, dry_run, delete_mode
-        )
+        return process_tags_sequential(records, client, tag_cache, dry_run, delete_mode)
     return process_tags_batch(
         records, client, tag_cache, dry_run, delete_mode, batch_size
     )
@@ -658,7 +672,10 @@ def main():
     if args.sequential:
         print('SEQUENTIAL MODE - Using single-item API calls', file=sys.stderr)
     else:
-        print(f'BATCH MODE - Up to {args.batch_size} operations per request', file=sys.stderr)
+        print(
+            f'BATCH MODE - Up to {args.batch_size} operations per request',
+            file=sys.stderr,
+        )
 
     # Create client from config (handles authentication automatically)
     try:
@@ -707,8 +724,13 @@ def main():
     action = 'Deleting' if args.delete else 'Processing'
     print(f'\n{action}...', file=sys.stderr)
     affected, skipped, error_count, errors = process_tags(
-        records, client, tag_cache, args.dry_run, args.delete,
-        args.sequential, args.batch_size,
+        records,
+        client,
+        tag_cache,
+        args.dry_run,
+        args.delete,
+        args.sequential,
+        args.batch_size,
     )
 
     # Print results
