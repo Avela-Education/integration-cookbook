@@ -242,6 +242,10 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
         except ValueError:
             return {answer_key: {'value': answer_value}}
 
+    # For Grades, answer is {grade: {value: "..."}}
+    if question_type == 'Grades':
+        return {'grade': {'value': answer_value}}
+
     # For MultiSelect, answer is just {'options': [...]} (not nested under multi_select)
     # Options can match by id, label, or value - only include fields that have real values
     if question_type == 'MultiSelect':
