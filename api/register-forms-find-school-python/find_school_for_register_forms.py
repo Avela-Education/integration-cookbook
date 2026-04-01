@@ -255,44 +255,37 @@ def find_school_for_register_form(
 # =============================================================================
 
 
-def export_results(results: list[dict], filename: str | None = None) -> str:
+CSV_FIELDNAMES = [
+    'register_form_id',
+    'applicant_id',
+    'applicant_reference_id',
+    'previous_form_id',
+    'previous_offer_id',
+    'matched_school_id',
+    'matched_school_reference_id',
+    'match_method',
+    'all_schools',
+]
+
+
+def open_csv_writer(filename: str | None = None):
     """
-    Export results to CSV.
+    Open a CSV file for incremental writing.
 
     Args:
-        results: List of result dicts from find_school_for_register_form
         filename: Output filename (defaults to timestamped name)
 
     Returns:
-        Path to the created CSV file
+        Tuple of (file handle, csv.DictWriter, filename)
     """
-    if not results:
-        print('No results to export.')
-        return ''
-
     if filename is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'register_form_schools_{timestamp}.csv'
 
-    fieldnames = [
-        'register_form_id',
-        'applicant_id',
-        'applicant_reference_id',
-        'previous_form_id',
-        'previous_offer_id',
-        'matched_school_id',
-        'matched_school_reference_id',
-        'match_method',
-        'all_schools',
-    ]
-
-    with open(filename, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(results)
-
-    print(f'Exported {len(results)} rows to: {filename}')
-    return filename
+    f = open(filename, 'w', newline='', encoding='utf-8')  # noqa: SIM115
+    writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+    writer.writeheader()
+    return f, writer, filename
 
 
 # =============================================================================
@@ -348,27 +341,40 @@ def main():
 
     # Step 2: Fetch detail for each form to get previous_form_id.
     # Forms with previous_form_id set are register forms.
-    print('\nFetching form details to identify register forms...')
+    # Write results to CSV incrementally so partial results survive crashes.
+    csv_file, csv_writer, filename = open_csv_writer()
+    print(f'\nWriting results to: {filename}')
+    print('Fetching form details to identify register forms...')
     apply_form_cache = {}  # Reuse school_choices across register forms
-    results = []
     register_count = 0
+    methods = {}
 
-    for i, form in enumerate(all_forms, 1):
-        if i % 25 == 0 or i == 1:
-            now = datetime.now().strftime('%H:%M:%S')
-            print(f'  [{now}] Checking form {i}/{len(all_forms)}...')
+    try:
+        for i, form in enumerate(all_forms, 1):
+            if i % 25 == 0 or i == 1:
+                now = datetime.now().strftime('%H:%M:%S')
+                print(f'  [{now}] Checking form {i}/{len(all_forms)}...')
 
-        detail = fetch_form_detail(client, form['id'])
-        if not detail:
-            continue
+            detail = fetch_form_detail(client, form['id'])
+            if not detail:
+                continue
 
-        # Only process forms that have previous_form_id (register forms)
-        if not detail.get('previous_form_id'):
-            continue
+            # Only process forms that have previous_form_id (register forms)
+            if not detail.get('previous_form_id'):
+                continue
 
-        register_count += 1
-        result = find_school_for_register_form(client, detail, apply_form_cache)
-        results.append(result)
+            register_count += 1
+            result = find_school_for_register_form(client, detail, apply_form_cache)
+            csv_writer.writerow(result)
+            csv_file.flush()
+
+            # Track match methods for summary
+            method = result['match_method']
+            if method.startswith('PREVIOUS_OFFER'):
+                method = 'PREVIOUS_OFFER (revoked/declined)'
+            methods[method] = methods.get(method, 0) + 1
+    finally:
+        csv_file.close()
 
     print(f'\nFound {register_count} register forms (forms with previous_form_id)')
 
@@ -377,30 +383,21 @@ def main():
     print('RESULTS SUMMARY')
     print(f'{"=" * 70}')
 
-    methods = {}
-    for r in results:
-        method = r['match_method']
-        # Group PREVIOUS_OFFER variants
-        if method.startswith('PREVIOUS_OFFER'):
-            method = 'PREVIOUS_OFFER (revoked/declined)'
-        methods[method] = methods.get(method, 0) + 1
-
     for method, count in sorted(methods.items(), key=lambda x: -x[1]):
         print(f'  {method:<50} {count:>5}')
 
-    matched = sum(1 for r in results if r['matched_school_id'])
-    unmatched = len(results) - matched
+    matched_methods = {
+        'ACCEPTED_OFFER',
+        'PREVIOUS_OFFER (revoked/declined)',
+        'SINGLE_SCHOOL',
+    }
+    matched = sum(count for method, count in methods.items() if method in matched_methods)
     print(f'\n  Total matched:   {matched}')
-    print(f'  Total unmatched: {unmatched}')
-
-    # Step 4: Export
-    print()
-    filename = export_results(results)
+    print(f'  Total unmatched: {register_count - matched}')
 
     print(f'\n{"=" * 70}')
     print('Done!')
-    if filename:
-        print(f'Results saved to: {filename}')
+    print(f'Results saved to: {filename}')
     print(f'{"=" * 70}')
 
 
