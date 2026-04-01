@@ -47,6 +47,19 @@ Batch download file attachments from forms using pre-signed URLs.
 
 ---
 
+### [Find School for Register Forms (Python)](register-forms-find-school-python/)
+Reliably identify which school a registration form belongs to, even when the accepted offer has been revoked or deleted.
+
+**What you'll learn:**
+- Following `previous_form_id` to traverse form relationships
+- Fetching school choices from the apply form
+- Matching schools when offer state is unreliable
+- Caching API responses to minimize calls
+
+**Complexity:** Intermediate | **Language:** Python 3.10+
+
+---
+
 ## Coming Soon
 
 - **Applicants Fetch All (Node.js)** - Node.js version of applicant retrieval
