@@ -155,7 +155,7 @@ When we fix security issues:
 ## Contact
 
 - **Security issues**: [security@avela.org](mailto:security@avela.org)
-- **General support**: [api-support@avela.org](mailto:api-support@avela.org)
+- **General support**: [help@avela.org](mailto:help@avela.org)
 - **Documentation**: [API Reference](https://prod.api-docs.avela.dev/v2/index.html)
 
 ---

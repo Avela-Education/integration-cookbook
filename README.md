@@ -125,7 +125,7 @@ Please see our [Contributing Guide](CONTRIBUTING.md) for:
 
 ## 💬 Support & Community
 
-- **📧 Email:** [api-support@avela.org](mailto:api-support@avela.org)
+- **📧 Email:** [help@avela.org](mailto:help@avela.org)
 - **🐛 Bug Reports:** [GitHub Issues](https://github.com/Avela-Education/integration-cookbook/issues)
 - **📚 Documentation:** [API Reference](https://prod.api-docs.avela.dev/v2/index.html)
 

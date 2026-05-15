@@ -143,7 +143,7 @@ except requests.exceptions.HTTPError as e:
 ## Support
 
 - Report issues: [GitHub Issues](https://github.com/Avela-Education/integration-cookbook/issues)
-- Email support: [api-support@avela.org](mailto:api-support@avela.org)
+- Email support: [help@avela.org](mailto:help@avela.org)
 
 ## Contributing
 

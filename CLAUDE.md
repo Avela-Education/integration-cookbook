@@ -274,4 +274,4 @@ Each recipe concept should have multiple language implementations:
 
 - Main API Docs: https://prod.api-docs.avela.dev/v2/index.html
 - Rate Limits: shared/python/README.md#rate-limits
-- Support: api-support@avela.org
+- Support: help@avela.org

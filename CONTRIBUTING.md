@@ -268,7 +268,7 @@ All submissions require review. Reviewers will check:
 
 ## 💬 Questions?
 
-- Email: [api-support@avela.org](mailto:api-support@avela.org)
+- Email: [help@avela.org](mailto:help@avela.org)
 - Check existing [issues](https://github.com/Avela-Education/integration-cookbook/issues)
 
 ## 📜 Code of Conduct
