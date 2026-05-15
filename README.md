@@ -67,7 +67,8 @@ Before you begin, ensure you have:
 
 1. **Avela API Credentials**
    - Client ID and Client Secret
-   - [Request access](https://avela.org/api-access) from your Avela administrator
+   - Existing customers: email [help@avela.org](mailto:help@avela.org)
+   - New to Avela? [Contact us](https://avela.org/contact)
 
 2. **Development Environment**
    - Python 3.10+ or Node.js 16+ (depending on examples)
