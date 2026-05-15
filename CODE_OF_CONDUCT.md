@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at
-[info@avela.org](mailto:info@avela.org).
+[help@avela.org](mailto:help@avela.org).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

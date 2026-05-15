@@ -3,7 +3,7 @@
 > Production-ready integration patterns for the Avela Education Platform
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![API Version](https://img.shields.io/badge/API-v2-green.svg)](https://docs.avela.org)
+[![API Version](https://img.shields.io/badge/API-v2-green.svg)](https://prod.api-docs.avela.dev/v2/index.html)
 
 ## 🎯 Quick Start
 
@@ -103,11 +103,10 @@ what files were downloaded and where they are. Be sure to read AGENT.md warnings
 
 ## 📖 Documentation & Resources
 
-- [**API Reference**](https://docs.avela.org/api/v2) - Complete API documentation
-- [**Authentication Guide**](https://docs.avela.org/authentication) - OAuth2 setup
-- [**Webhook Events**](https://docs.avela.org/webhooks) - Available events
-- [**Rate Limits**](https://docs.avela.org/rate-limits) - API usage limits
-- [**Support Portal**](https://support.avela.org) - Get help
+- [**API Reference**](https://prod.api-docs.avela.dev/v2/index.html) - Complete API documentation
+- [**Webhook Events**](https://help.avela.org/hc/en-us/articles/30566811184909-Webhooks) - Available events
+- [**Rate Limits**](shared/python/README.md#rate-limits) - API usage limits
+- **Support:** email [help@avela.org](mailto:help@avela.org)
 
 ## 🤝 Contributing
 
@@ -126,10 +125,9 @@ Please see our [Contributing Guide](CONTRIBUTING.md) for:
 
 ## 💬 Support & Community
 
-- **📧 Email:** [api-support@avela.org](mailto:api-support@avela.org)
+- **📧 Email:** [help@avela.org](mailto:help@avela.org)
 - **🐛 Bug Reports:** [GitHub Issues](https://github.com/Avela-Education/integration-cookbook/issues)
-- **💬 Discussions:** [GitHub Discussions](https://github.com/Avela-Education/integration-cookbook/discussions)
-- **📚 Documentation:** [docs.avela.org](https://docs.avela.org)
+- **📚 Documentation:** [API Reference](https://prod.api-docs.avela.dev/v2/index.html)
 
 ## 📜 License
 

@@ -137,16 +137,13 @@ except requests.exceptions.HTTPError as e:
 
 ## Resources
 
-- [API Reference Documentation](https://docs.avela.org/api/v2)
-- [Authentication Guide](https://docs.avela.org/authentication)
-- [Rate Limits](https://docs.avela.org/rate-limits)
-- [API Changelog](https://docs.avela.org/changelog)
+- [API Reference Documentation](https://prod.api-docs.avela.dev/v2/index.html)
+- [Rate Limits](../shared/python/README.md#rate-limits)
 
 ## Support
 
 - Report issues: [GitHub Issues](https://github.com/Avela-Education/integration-cookbook/issues)
-- Ask questions: [GitHub Discussions](https://github.com/Avela-Education/integration-cookbook/discussions)
-- Email support: [api-support@avela.org](mailto:api-support@avela.org)
+- Email support: [help@avela.org](mailto:help@avela.org)
 
 ## Contributing
 

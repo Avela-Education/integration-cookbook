@@ -131,7 +131,7 @@ Show what success looks like
 - [Related Example 2](../path/to/example/)
 
 ## API Reference
-- [Relevant API Docs](https://docs.avela.org/...)
+- [Relevant API Docs](https://prod.api-docs.avela.dev/v2/index.html)
 ```
 
 ### Security Requirements
@@ -261,15 +261,14 @@ All submissions require review. Reviewers will check:
 
 ## 📚 Additional Resources
 
-- [Avela API Documentation](https://docs.avela.org)
+- [Avela API Documentation](https://prod.api-docs.avela.dev/v2/index.html)
 - [Python Style Guide (PEP 8)](https://pep8.org/)
 - [JavaScript Style Guide](https://standardjs.com/)
 - [How to Write a Good README](https://www.makeareadme.com/)
 
 ## 💬 Questions?
 
-- Open a [discussion](https://github.com/Avela-Education/integration-cookbook/discussions)
-- Email: [api-support@avela.org](mailto:api-support@avela.org)
+- Email: [help@avela.org](mailto:help@avela.org)
 - Check existing [issues](https://github.com/Avela-Education/integration-cookbook/issues)
 
 ## 📜 Code of Conduct
