@@ -97,9 +97,8 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
 
 ## API Reference
 
-- [Applicants Endpoint Documentation](https://docs.avela.org/api/v2/applicants)
-- [Authentication Guide](https://docs.avela.org/authentication)
-- [Rate Limits](https://docs.avela.org/rate-limits)
+- [Applicants Endpoint Documentation](https://prod.api-docs.avela.dev/v2/index.html)
+- [Rate Limits](../../shared/python/README.md#rate-limits)
 
 ## Security Best Practices
 

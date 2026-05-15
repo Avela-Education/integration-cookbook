@@ -394,9 +394,8 @@ See [advanced/README.md](./advanced/README.md) for details.
 
 ## API Reference
 
-- [Forms Files Endpoint Documentation](https://docs.avela.org/api/v2/forms/files)
-- [Authentication Guide](https://docs.avela.org/authentication)
-- [Rate Limits](https://docs.avela.org/rate-limits)
+- [Forms Files Endpoint Documentation](https://prod.api-docs.avela.dev/v2/index.html)
+- [Rate Limits](../../shared/python/README.md#rate-limits)
 
 ## Security Best Practices
 
