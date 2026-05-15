@@ -73,7 +73,8 @@ Reliably identify which school a registration form belongs to, even when the acc
 
 1. **API Credentials**
    - Client ID and Client Secret from your Avela administrator
-   - [Request access](https://avela.org/api-access) if you don't have credentials
+   - Existing customers: email [help@avela.org](mailto:help@avela.org)
+   - New to Avela? [Contact us](https://avela.org/contact)
 
 2. **Development Environment**
    - Python 3.10+ or Node.js 16+ (depending on example)
