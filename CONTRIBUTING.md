@@ -131,7 +131,7 @@ Show what success looks like
 - [Related Example 2](../path/to/example/)
 
 ## API Reference
-- [Relevant API Docs](https://docs.avela.org/...)
+- [Relevant API Docs](https://prod.api-docs.avela.dev/v2/index.html)
 ```
 
 ### Security Requirements

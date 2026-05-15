@@ -73,10 +73,6 @@ Fetching applicants from prod environment...
 
 **Output file:** `avela_applicants_YYYYMMDD_HHMMSS.csv` with all applicant fields.
 
-## Troubleshooting
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
-
 ## API Endpoints Used
 
 ### Authentication
