@@ -1,69 +1,70 @@
 #!/usr/bin/env python3
 """
-Avela API Integration Script
+Fetch applicants from the Avela API and export them to CSV.
 
-This script demonstrates how to:
-1. Authenticate with the Avela API using OAuth2 client credentials
-2. Retrieve a list of applicants from your Avela organization
-3. Export the data to both console and CSV format
+The script:
+1. Logs in with OAuth2 client credentials
+2. Fetches every applicant in your organization, one page at a time
+3. Prints a summary table and writes a timestamped CSV file
 
 Author: Avela Education
 License: MIT
 """
 
+import argparse
 import csv
-import json
 import sys
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urljoin
 
 # We use the 'requests' library for making HTTP calls
 # Install it with: pip install requests
 import requests
 
+try:
+    from avela_client import environment_urls, load_settings, resolve_credentials
+except ImportError:
+    print('Error: the shared Avela client is not installed in this environment.')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
+
 # =============================================================================
 # CONFIGURATION LOADING
 # =============================================================================
 
 
-def load_config(config_path: str = 'config.json') -> dict:
+def load_config(profile: str | None = None) -> dict:
     """
-    Load configuration from a JSON file.
+    Find credentials, and read any other settings from the config file.
 
-    The config file should contain:
-    - client_id: Your OAuth2 client ID (provided by Avela)
-    - client_secret: Your OAuth2 client secret (provided by Avela)
-    - environment: Which Avela environment to connect to (prod, qa, uat, dev, dev2)
+    Credentials come from environment variables or the OS keychain. See
+    resolve_credentials() in the shared avela_client module.
 
     Args:
-        config_path: Path to the configuration JSON file
+        profile: Named credential set to use, when you have several clients
 
     Returns:
-        Dictionary containing configuration values
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
+        Settings dictionary, with the credentials added
     """
-    config_file = Path(config_path)
-
-    if not config_file.exists():
-        print(f"Error: Configuration file '{config_path}' not found!")
-        print("Please create it based on 'config.example.json'")
+    # The settings and the credentials always come from the same client
+    try:
+        config = load_settings(profile)
+    except ValueError as e:
+        # Show the plain message instead of a Python error
+        print(e)
         sys.exit(1)
 
-    with open(config_file, encoding='utf-8') as f:
-        config = json.load(f)
-
-    # Validate required fields
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing_fields = [field for field in required_fields if field not in config]
-
-    if missing_fields:
-        print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
+    try:
+        credentials = resolve_credentials(profile=profile)
+    except ValueError as e:
+        print(e)
         sys.exit(1)
 
+    config['client_id'] = credentials.client_id
+    config['client_secret'] = credentials.client_secret
+    config['environment'] = credentials.environment
+    config['credential_source'] = credentials.source
     return config
 
 
@@ -74,73 +75,61 @@ def load_config(config_path: str = 'config.json') -> dict:
 
 def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
     """
-    Authenticate with Avela API and get an access token.
+    Log in to the Avela API and get an access token.
 
-    This function uses the OAuth2 "client credentials" flow:
-    1. Send client_id and client_secret to the authentication endpoint
-    2. Receive an access token that's valid for 24 hours
-    3. Use this token in subsequent API requests
+    This is the OAuth2 client credentials flow. You send the client ID and
+    secret to the login endpoint, get back a token that lasts 24 hours, and
+    send that token with every later request.
 
     Args:
         client_id: Your OAuth2 client ID
         client_secret: Your OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev, dev2)
+        environment: Which environment to use (prod, qa, uat, dev, dev2)
 
     Returns:
         Access token string (JWT format)
 
     Raises:
-        requests.RequestException: If authentication fails
+        requests.RequestException: If the login fails
     """
-    # Build the authentication URL based on environment
-    # For production, the URL is: https://auth.avela.org/oauth/token
-    # For other environments: https://{env}.auth.avela.org/oauth/token
-    if environment == 'prod':
-        auth_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    else:
-        auth_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
+    # environment_urls knows that staging authenticates against a different
+    # host, which is easy to get wrong when building these by hand
+    auth_url, _, audience = environment_urls(environment)
 
     print(f'Authenticating with Avela API ({environment})...')
 
-    # Prepare the authentication request
-    # Note: OAuth2 typically uses 'application/x-www-form-urlencoded' for token requests
+    # OAuth2 token requests are form encoded, not JSON
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
 
-    # The data payload for OAuth2 client credentials flow
     data = {
-        'grant_type': 'client_credentials',  # Type of OAuth2 flow
-        'client_id': client_id,  # Your client identifier
-        'client_secret': client_secret,  # Your client secret (keep secure!)
-        'audience': audience,  # The API you want to access
+        'grant_type': 'client_credentials',
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'audience': audience,  # The API you are asking for access to
     }
 
     try:
-        # Make the POST request to get the token
         response = requests.post(auth_url, data=data, headers=headers, timeout=30)
 
-        # Raise an exception if the request failed (4xx or 5xx status codes)
+        # Stop here on a 4xx or 5xx response
         response.raise_for_status()
 
-        # Parse the JSON response
         token_data = response.json()
 
-        # Extract the access token from the response
         access_token = token_data.get('access_token')
         if not access_token:
-            print('Error: No access token in response!')
+            print('Error: No access token in the response.')
             print(f'Response: {token_data}')
             sys.exit(1)
 
         expires_in = token_data.get('expires_in', 86400)  # Default 24 hours
 
-        print(f'✓ Authentication successful! Token expires in {expires_in} seconds.')
+        print(f'✓ Authentication successful. Token expires in {expires_in} seconds.')
 
         return access_token
 
     except requests.exceptions.RequestException as e:
-        print('Error: Authentication failed!')
+        print('Error: Authentication failed.')
         print(f'Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'Response: {e.response.text}')
@@ -159,44 +148,39 @@ def get_applicants(
     reference_ids: list[str] | None = None,
 ) -> list[dict]:
     """
-    Retrieve applicants from the Avela API.
+    Fetch applicants from the Avela API.
 
-    This function:
-    1. Makes GET requests to the /api/applicants endpoint
-    2. Automatically handles pagination to retrieve all records
-    3. Returns a list of all applicants
+    Reads one page at a time from the /api/rest/v2/applicants endpoint until a
+    page comes back short, then returns every record as one list.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev, dev2)
-        limit: Number of records to fetch per page (max: 1000)
-        reference_ids: Optional list of reference IDs to filter by
+        environment: Which environment to use (prod, qa, uat, dev, dev2)
+        limit: How many records to fetch per page (max: 1000)
+        reference_ids: Fetch only these reference IDs, if given
 
     Returns:
         List of applicant dictionaries
 
     Raises:
-        requests.RequestException: If API request fails
+        requests.RequestException: If the request fails
     """
-    # Build the API base URL based on environment
-    # The V2 API is mounted at /api/rest/v2 path
-    api_base_url = f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
+    # The v2 API lives under /api/rest/v2
+    _, api_base_url, _ = environment_urls(environment)
+    api_base_url += '/'
 
     applicants_url = urljoin(api_base_url, 'applicants')
 
-    # Prepare headers with the access token
-    # The API expects the token in the 'Authorization' header with 'Bearer' prefix
+    # The token goes in the Authorization header, after the word Bearer
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
     }
 
-    # Prepare query parameters
     params = {
         'limit': min(limit, 1000)  # API maximum is 1000 records per request
     }
 
-    # If filtering by specific reference IDs, add them to params
     if reference_ids:
         params['reference_id'] = reference_ids
 
@@ -206,42 +190,33 @@ def get_applicants(
     offset = 0
     page = 1
 
-    # Pagination loop: keep fetching until we get fewer records than requested
+    # Keep fetching until a page comes back short, which means the last one
     while True:
         params['offset'] = offset
 
         print(f'  Fetching page {page} (offset: {offset})...', end=' ')
 
         try:
-            # Make the GET request to fetch applicants
             response = requests.get(
                 applicants_url, headers=headers, params=params, timeout=30
             )
-
-            # Check if request was successful
             response.raise_for_status()
 
-            # Parse the JSON response
             data = response.json()
-
-            # Extract the applicants array from the response
             applicants = data.get('applicants', [])
 
             print(f'Retrieved {len(applicants)} applicants')
 
-            # Add these applicants to our collection
             all_applicants.extend(applicants)
 
-            # If we got no records or fewer than the limit, we've reached the end
             if not applicants or len(applicants) < params['limit']:
                 break
 
-            # Move to the next page
             offset += params['limit']
             page += 1
 
         except requests.exceptions.RequestException as e:
-            print('\nError: Failed to fetch applicants!')
+            print('\nError: Failed to fetch applicants.')
             print(f'Details: {e}')
             if hasattr(e, 'response') and e.response is not None:
                 print(f'Response: {e.response.text}')
@@ -259,9 +234,7 @@ def get_applicants(
 
 def print_applicants_summary(applicants: list[dict]) -> None:
     """
-    Print a formatted summary of applicants to the console.
-
-    This displays a table with key information about each applicant.
+    Print a table of applicants to the screen.
 
     Args:
         applicants: List of applicant dictionaries
@@ -274,19 +247,16 @@ def print_applicants_summary(applicants: list[dict]) -> None:
     print(f'APPLICANTS SUMMARY ({len(applicants)} total)')
     print('=' * 120)
 
-    # Print header
     header = f'{"Reference ID":<15} {"Name":<30} {"Email":<35} {"Birth Date":<12} {"City, State":<20}'
     print(header)
     print('-' * 120)
 
-    # Print each applicant
     for applicant in applicants:
         reference_id = applicant.get('reference_id') or 'N/A'
         first_name = applicant.get('first_name') or ''
         middle_name = applicant.get('middle_name') or ''
         last_name = applicant.get('last_name') or ''
 
-        # Build full name
         name_parts = [first_name, middle_name, last_name]
         full_name = ' '.join(part for part in name_parts if part) or 'N/A'
 
@@ -296,7 +266,7 @@ def print_applicants_summary(applicants: list[dict]) -> None:
         state = applicant.get('state') or ''
         location = f'{city}, {state}' if city or state else 'N/A'
 
-        # Truncate long values to fit in columns
+        # Cut long values down so the columns line up
         full_name = (full_name[:27] + '...') if len(full_name) > 30 else full_name
         email = (email[:32] + '...') if email != 'N/A' and len(email) > 35 else email
         location = (
@@ -313,31 +283,29 @@ def print_applicants_summary(applicants: list[dict]) -> None:
 
 def export_to_csv(applicants: list[dict], filename: str | None = None) -> None:
     """
-    Export applicants data to a CSV file.
+    Write the applicants to a CSV file.
 
-    This creates a CSV file with all applicant fields that can be opened in
-    Excel, Google Sheets, or any spreadsheet application.
+    The file holds every field the API returned and opens in Excel or Google
+    Sheets.
 
     Args:
         applicants: List of applicant dictionaries
-        filename: Output filename (defaults to timestamped filename)
+        filename: Name for the file (defaults to a timestamped name)
     """
     if not applicants:
         print('No applicants to export.')
         return
 
-    # Generate filename with timestamp if not provided
     if filename is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'avela_applicants_{timestamp}.csv'
 
-    # Determine all possible fields from the applicants data
-    # This ensures we capture all fields even if some applicants have extra data
+    # Collect every field name, since some applicants carry extra fields
     all_fields = set()
     for applicant in applicants:
         all_fields.update(applicant.keys())
 
-    # Define the preferred column order (common fields first)
+    # The common columns, in the order they should appear
     preferred_order = [
         'reference_id',
         'first_name',
@@ -362,26 +330,21 @@ def export_to_csv(applicants: list[dict], filename: str | None = None) -> None:
         'id',
     ]
 
-    # Put preferred fields first, then any remaining fields alphabetically
+    # Those columns first, then anything left over in alphabetical order
     fieldnames = [f for f in preferred_order if f in all_fields]
     remaining_fields = sorted(all_fields - set(fieldnames))
     fieldnames.extend(remaining_fields)
 
-    # Write to CSV file
     try:
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-            # Write header row
             writer.writeheader()
-
-            # Write all applicant rows
             writer.writerows(applicants)
 
         print(f'✓ Exported {len(applicants)} applicants to: {filename}')
 
     except OSError as e:
-        print('Error: Failed to write CSV file!')
+        print('Error: Failed to write the CSV file.')
         print(f'Details: {e}')
         sys.exit(1)
 
@@ -393,10 +356,10 @@ def export_to_csv(applicants: list[dict], filename: str | None = None) -> None:
 
 def prompt_for_reference_ids() -> list[str] | None:
     """
-    Prompt the user to choose whether to fetch all applicants or filter by reference IDs.
+    Ask whether to fetch every applicant or only certain reference IDs.
 
     Returns:
-        None if fetching all applicants, or a list of reference IDs to filter by
+        None to fetch everything, or the list of reference IDs to fetch
     """
     print('\nHow would you like to fetch applicants?')
     print('[1] Fetch all applicants')
@@ -417,20 +380,20 @@ def prompt_for_reference_ids() -> list[str] | None:
             ids_input = input('Reference IDs: ').strip()
 
             if not ids_input:
-                print('Error: No reference IDs provided. Please try again.\n')
+                print('Error: No reference IDs entered. Try again.\n')
                 continue
 
-            # Split by comma and strip whitespace from each ID
+            # Split on commas and trim the spaces around each ID
             reference_ids = [rid.strip() for rid in ids_input.split(',') if rid.strip()]
 
             if not reference_ids:
-                print('Error: No valid reference IDs provided. Please try again.\n')
+                print('Error: No usable reference IDs entered. Try again.\n')
                 continue
 
             print(f'\n✓ Will filter by {len(reference_ids)} reference ID(s)')
             return reference_ids
 
-        print('Error: Invalid choice. Please enter 1 or 2.\n')
+        print('Error: Enter 1 or 2.\n')
 
 
 # =============================================================================
@@ -439,55 +402,58 @@ def prompt_for_reference_ids() -> list[str] | None:
 
 
 def main():
-    """
-    Main execution function.
+    """Log in, fetch the applicants, print them, and write the CSV file."""
+    parser = argparse.ArgumentParser(
+        description='Fetch applicants from the Avela API and export them to CSV'
+    )
+    parser.add_argument(
+        '--profile', default=None, help='Named credential set to use (see README)'
+    )
+    args = parser.parse_args()
 
-    This orchestrates the entire workflow:
-    1. Load configuration
-    2. Prompt user for filtering options
-    3. Authenticate with the API
-    4. Fetch applicants data
-    5. Display and export the results
-    """
     print('=' * 80)
     print('AVELA API INTEGRATION - APPLICANTS EXPORT')
     print('=' * 80)
 
-    # Step 1: Load configuration from config.json
-    config = load_config('config.json')
+    # Step 1: Find credentials and any extra settings
+    config = load_config(profile=args.profile)
 
     client_id = config['client_id']
     client_secret = config['client_secret']
     environment = config['environment']
 
-    # Step 2: Ask user how they want to filter applicants
+    print(f'Credentials: {config["credential_source"]}')
+
+    # Step 2: Ask which applicants to fetch
     reference_ids = prompt_for_reference_ids()
 
-    # Step 3: Authenticate and get access token
+    # Step 3: Log in
     access_token = get_access_token(client_id, client_secret, environment)
 
-    # Step 4: Fetch applicants from the API
+    # Step 4: Fetch the applicants
     applicants = get_applicants(
         access_token=access_token, environment=environment, reference_ids=reference_ids
     )
 
-    # Step 5: Display results to console
+    # Step 5: Print the results
     print_applicants_summary(applicants)
 
-    # Step 6: Export to CSV file
+    # Step 6: Write the CSV file
     export_to_csv(applicants)
 
-    print('\n✓ Integration completed successfully!')
+    print('\n✓ Done.')
     print('=' * 80)
 
 
 if __name__ == '__main__':
     """
-    Entry point when script is run directly.
+    Run the recipe.
 
     Usage:
         python avela_api_client.py
+        python avela_api_client.py --profile district-a
 
-    Make sure you have created a 'config.json' file with your credentials first!
+    Store your credentials first. The README covers the keychain and
+    environment variables.
     """
     main()

@@ -4,7 +4,7 @@ Production-ready code examples for integrating with the Avela API.
 
 ## Overview
 
-Each recipe is a self-contained example showing how to accomplish a specific integration task. All recipes include complete working code, configuration templates, and comprehensive documentation.
+Each recipe is a standalone example of one integration task. Every recipe ships with working code, configuration templates, and full documentation.
 
 ## Available Recipes
 
@@ -60,12 +60,49 @@ Reliably identify which school a registration form belongs to, even when the acc
 
 ---
 
+### [Update Offer Statuses (Python)](offers-update-status-python/)
+Accept or decline offers in bulk from a CSV file.
+
+**What you'll learn:**
+- Using the unified offer status endpoint
+- Grouping rows by action to batch API calls
+- Dry run before writing to production
+- Reading and validating CSV input
+
+**Complexity:** Beginner | **Language:** Python 3.10+
+
+---
+
+### [Import Form-School Tags (Python)](form-school-tags-import-python/)
+Assign tags to form and school pairs in bulk from a CSV file.
+
+**What you'll learn:**
+- Resolving tag names to UUIDs through the API
+- Batch endpoints with 207 Multi-Status responses
+- Handling partial success across a batch
+- Resuming a partial import with `--start-row`
+
+**Complexity:** Intermediate | **Language:** Python 3.10+
+
+---
+
+## Recipe Index
+
+| Recipe                                                                  | Task                                               | Complexity   |
+| ----------------------------------------------------------------------- | -------------------------------------------------- | ------------ |
+| [applicants-fetch-all-python](applicants-fetch-all-python/)             | Fetch applicants with pagination and export to CSV | Beginner     |
+| [forms-update-csv-python](forms-update-csv-python/)                     | Bulk update form answers from a CSV                | Intermediate |
+| [forms-download-files-python](forms-download-files-python/)             | Batch download form file attachments               | Beginner     |
+| [register-forms-find-school-python](register-forms-find-school-python/) | Match register forms to schools reliably           | Intermediate |
+| [offers-update-status-python](offers-update-status-python/)             | Accept or decline offers in bulk                   | Beginner     |
+| [form-school-tags-import-python](form-school-tags-import-python/)       | Import form-school tag assignments from a CSV      | Intermediate |
+
 ## Coming Soon
 
-- **Applicants Fetch All (Node.js)** - Node.js version of applicant retrieval
-- **Forms Update CSV (Node.js)** - Node.js version of CSV form updates
-- **Webhook Event Handler** - Process real-time application events
-- **Applicant Search & Filter** - Advanced querying patterns
+- **Applicants Fetch All (Node.js)**, applicant retrieval in Node.js
+- **Forms Update CSV (Node.js)**, CSV form updates in Node.js
+- **Webhook Event Handler**, process real-time application events
+- **Applicant Search & Filter**, advanced querying patterns
 
 ## Getting Started
 
@@ -82,25 +119,80 @@ Reliably identify which school a registration form belongs to, even when the acc
 
 ### Quick Start
 
-1. **Choose your language**: Navigate to an example in your preferred language
+1. **Choose your language**: Open an example in the language you want
 2. **Install dependencies**: Follow the example's README
-3. **Configure credentials**: Copy `config.example.json` to `config.json` and add your credentials
-4. **Run the example**: Execute the main script
+3. **Store credentials**: See [Credentials](#credentials) below
+4. **Run the example**: Run the main script
+
+## Credentials
+
+Every recipe gets its credentials the same way, through the shared resolver in [shared/python/avela_client.py](../shared/python/avela_client.py). It checks these places in order and stops at the first that has both an id and a secret:
+
+| Order | Source                | Names                                                                 |
+| ----- | --------------------- | --------------------------------------------------------------------- |
+| 1     | Arguments in code     | `AvelaClient(client_id=..., client_secret=...)`                       |
+| 2     | Environment variables | `AVELA_CLIENT_ID`, `AVELA_CLIENT_SECRET`, `AVELA_ENVIRONMENT`         |
+| 3     | OS keychain           | Service `avela-api`, keys `client_id`, `client_secret`, `environment` |
+
+Environment variables come before the keychain on purpose, so a server, container, or CI job can override whatever a developer stored locally. `config.json` files hold non-secret settings only; credentials in one are ignored.
+
+### OS keychain (recommended on a laptop)
+
+```bash
+# from the repository root
+python shared/python/setup_credentials.py
+
+# from inside a recipe directory
+python ../../shared/python/setup_credentials.py
+```
+
+The helper asks for your client id, client secret, and environment, then stores them encrypted in your operating system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). The prompt hides the secret as you type, so it never reaches your shell history.
+
+### Environment variables (recommended for servers, CI, and containers)
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+AWS Secrets Manager, SSM, and `op run` all fill these same variables.
+
+### config.json (legacy)
+
+Credentials in a `config.json` are no longer used. A run that finds some prints a note telling you to move them to the keychain. It stores the secret in plaintext and now prints a warning. Recipes still read `config.json` for settings that are not secret (`output_dir`, `enrollment_period_id`, and similar). A file with no id and secret in it is skipped when credentials are looked up.
+
+### Working with several clients
+
+Store one set of credentials per client and pick one at run time:
+
+```bash
+python shared/python/setup_credentials.py --profile district-a
+python api/applicants-fetch-all-python/avela_api_client.py --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same without the flag. The profile renames every source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. [shared/python/README.md](../shared/python/README.md) has the full explanation.
+
+`pip install -r requirements.txt` installs `keyring`, so the keychain works with no extra step.
 
 ## API Versions
 
-- **Customer API v2** - Current version (all examples use v2)
+- **Customer API v2** is the current version. All examples use it.
 
 ## Common Patterns
 
 ### Authentication Flow
 ```python
-# 1. Get access token using client credentials
-token = get_access_token(client_id, client_secret, environment)
+from avela_client import create_client
 
-# 2. Use token for API requests
-headers = {'Authorization': f'Bearer {token}'}
-response = requests.get(api_url, headers=headers)
+# Credentials come from the sources listed above, so no arguments are needed
+client = create_client()
+
+# Or select a named client
+client = create_client(profile='district-a')
+
+# The client authenticates and attaches the bearer token to every request
+response = client.get('/applicants', params={'limit': 1000})
 ```
 
 ### Pagination
@@ -147,4 +239,4 @@ except requests.exceptions.HTTPError as e:
 
 ## Contributing
 
-Have an API integration pattern to share? See our [Contributing Guide](../CONTRIBUTING.md) for guidelines on submitting new examples.
+Have an API integration pattern to share? Our [Contributing Guide](../CONTRIBUTING.md) covers how to submit a new example.

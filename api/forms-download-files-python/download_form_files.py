@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Avela API Integration Script - Download Form Files
+Download every file attached to a list of Avela forms.
 
-This script demonstrates how to:
-1. Authenticate with the Avela API using OAuth2 client credentials
-2. Retrieve file upload questions and pre-signed download URLs for forms
-3. Download all file attachments to a local directory
+The script:
+1. Logs in with OAuth2 client credentials
+2. Asks the API for the file upload questions on each form, and the download
+   links that go with them
+3. Saves every file under a folder for its form and its question
 
 Author: Avela Education
 License: MIT
 """
 
-import json
+import argparse
 import os
 import sys
 from datetime import datetime
@@ -20,6 +21,14 @@ from urllib.parse import urljoin
 
 import requests
 
+try:
+    from avela_client import environment_urls, load_settings, resolve_credentials
+except ImportError:
+    print('Error: the shared Avela client is not installed in this environment.')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
+
 # =============================================================================
 # UTILITIES
 # =============================================================================
@@ -27,14 +36,14 @@ import requests
 
 def chunk_list(items: list, size: int = 100) -> list[list]:
     """
-    Split a list into chunks of specified size.
+    Split a list into smaller lists.
 
     Args:
         items: List to split
-        size: Maximum size of each chunk (default: 100)
+        size: Largest size of each piece (default: 100)
 
     Returns:
-        List of lists, each containing up to 'size' items
+        List of lists, each holding up to 'size' items
     """
     return [items[i : i + size] for i in range(0, len(items), size)]
 
@@ -44,49 +53,46 @@ def chunk_list(items: list, size: int = 100) -> list[list]:
 # =============================================================================
 
 
-def load_config(config_path: str = 'config.json') -> dict:
+def load_config(profile: str | None = None) -> dict:
     """
-    Load configuration from a JSON file.
+    Find credentials, and read any other settings from the config file.
 
-    The config file should contain:
-    - client_id: Your OAuth2 client ID (provided by Avela)
-    - client_secret: Your OAuth2 client secret (provided by Avela)
-    - environment: Which Avela environment to connect to (prod, qa, uat, dev)
+    Credentials come from environment variables or the OS keychain. See
+    resolve_credentials() in the shared avela_client module.
+    Other settings, such as output_dir, pass through untouched.
 
     Args:
-        config_path: Path to the configuration JSON file
+        profile: Named credential set to use, when you have several clients
 
     Returns:
-        Dictionary containing configuration values
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
+        Settings dictionary, with the credentials added
     """
-    config_file = Path(config_path)
-
-    if not config_file.exists():
-        print(f"Error: Configuration file '{config_path}' not found!")
-        print("Please create it based on 'config.example.json'")
+    # The settings and the credentials always come from the same client
+    try:
+        config = load_settings(profile)
+    except ValueError as e:
+        # Show the plain message instead of a Python error
+        print(e)
         sys.exit(1)
 
-    with open(config_file, encoding='utf-8') as f:
-        config = json.load(f)
-
-    # Validate required fields
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing_fields = [field for field in required_fields if field not in config]
-
-    if missing_fields:
-        print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
+    try:
+        credentials = resolve_credentials(profile=profile)
+    except ValueError as e:
+        print(e)
         sys.exit(1)
 
+    config['client_id'] = credentials.client_id
+    config['client_secret'] = credentials.client_secret
+    config['environment'] = credentials.environment
+    config['credential_source'] = credentials.source
     return config
 
 
 def load_form_ids(file_path: str) -> list[str]:
     """
-    Load form IDs from a text file (one ID per line).
+    Read form IDs from a text file, one per line.
+
+    Blank lines and lines starting with # are skipped.
 
     Args:
         file_path: Path to the form IDs file
@@ -95,16 +101,15 @@ def load_form_ids(file_path: str) -> list[str]:
         List of form ID strings
 
     Raises:
-        FileNotFoundError: If file doesn't exist
+        FileNotFoundError: If the file is missing
     """
     path = Path(file_path)
 
     if not path.exists():
-        print(f"Error: Form IDs file '{file_path}' not found!")
+        print(f"Error: Form IDs file '{file_path}' not found.")
         sys.exit(1)
 
     with open(path, encoding='utf-8') as f:
-        # Read lines, strip whitespace, skip empty lines and comments
         form_ids = [
             line.strip()
             for line in f
@@ -125,31 +130,26 @@ def load_form_ids(file_path: str) -> list[str]:
 
 def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
     """
-    Authenticate with Avela API and get an access token.
+    Log in to the Avela API and get an access token.
 
-    This function uses the OAuth2 "client credentials" flow:
-    1. Send client_id and client_secret to the authentication endpoint
-    2. Receive an access token that's valid for 24 hours
-    3. Use this token in subsequent API requests
+    This is the OAuth2 client credentials flow. You send the client ID and
+    secret to the login endpoint, get back a token that lasts 24 hours, and
+    send that token with every later request.
 
     Args:
         client_id: Your OAuth2 client ID
         client_secret: Your OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
 
     Returns:
         Access token string (JWT format)
 
     Raises:
-        requests.RequestException: If authentication fails
+        requests.RequestException: If the login fails
     """
-    # Build the authentication URL based on environment
-    if environment == 'prod':
-        auth_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    else:
-        auth_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
+    # environment_urls knows that staging authenticates against a different
+    # host, which is easy to get wrong when building these by hand
+    auth_url, _, audience = environment_urls(environment)
 
     print(f'Authenticating with Avela API ({environment})...')
 
@@ -170,17 +170,17 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
         access_token = token_data.get('access_token')
 
         if not access_token:
-            print('Error: No access token in response!')
+            print('Error: No access token in the response.')
             print(f'Response: {token_data}')
             sys.exit(1)
 
         expires_in = token_data.get('expires_in', 86400)
-        print(f'Authentication successful! Token expires in {expires_in} seconds.')
+        print(f'Authentication successful. Token expires in {expires_in} seconds.')
 
         return access_token
 
     except requests.exceptions.RequestException as e:
-        print('Error: Authentication failed!')
+        print('Error: Authentication failed.')
         print(f'Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'Response: {e.response.text}')
@@ -198,37 +198,32 @@ def get_form_files(
     form_ids: list[str],
 ) -> list[dict]:
     """
-    Retrieve file upload questions and download URLs for specified forms.
+    Ask the API which files are attached to a batch of forms.
 
-    This function calls the GET /rest/v2/forms/files endpoint which returns
-    file upload questions from forms along with pre-signed download URLs
-    for each uploaded document.
+    Calls GET /rest/v2/forms/files. For each form it returns the file upload
+    questions and a download link for every uploaded document. Those links are
+    pre-signed, so they work without the access token and they expire.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
-        form_ids: List of form IDs to get files for (max 100)
+        environment: Which environment to use (prod, qa, uat, dev)
+        form_ids: The forms to ask about (up to 100 at a time)
 
     Returns:
-        List of form response objects containing file information
+        List of per-form response objects holding the file information
 
     Raises:
-        requests.RequestException: If API request fails
+        requests.RequestException: If the request fails
     """
-    # Build the API URL based on environment
-    if environment == 'prod':
-        api_base_url = 'https://prod.execute-api.apply.avela.org/api/rest/v2/'
-    else:
-        api_base_url = f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
-
-    files_url = urljoin(api_base_url, 'forms/files')
+    _, api_base_url, _ = environment_urls(environment)
+    files_url = urljoin(api_base_url + '/', 'forms/files')
 
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
     }
 
-    # form_id parameter is comma-delimited
+    # The form_id parameter takes a comma separated list
     params = {'form_id': ','.join(form_ids)}
 
     print(f'\nFetching file information for {len(form_ids)} form(s)...')
@@ -236,13 +231,13 @@ def get_form_files(
     try:
         response = requests.get(files_url, headers=headers, params=params, timeout=60)
 
-        # This endpoint returns 207 Multi-Status for batch responses
+        # A batch answer comes back as 207 Multi-Status, which is not an error
         if response.status_code not in [200, 207]:
             response.raise_for_status()
 
         data = response.json()
 
-        # The response contains a 'responses' array with per-form results
+        # One entry per form, in a 'responses' array
         responses = data.get('responses', [])
 
         print(f'Received responses for {len(responses)} form(s)')
@@ -250,7 +245,7 @@ def get_form_files(
         return responses
 
     except requests.exceptions.RequestException as e:
-        print('Error: Failed to fetch form files!')
+        print('Error: Failed to fetch the form files.')
         print(f'Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'Response: {e.response.text}')
@@ -264,15 +259,14 @@ def get_form_files(
 
 def sanitize_filename(filename: str) -> str:
     """
-    Sanitize a filename to remove potentially problematic characters.
+    Replace the characters an operating system will not accept in a filename.
 
     Args:
         filename: Original filename
 
     Returns:
-        Sanitized filename safe for filesystem use
+        A filename you can safely write to disk
     """
-    # Remove or replace characters that might cause issues
     invalid_chars = '<>:"/\\|?*'
     for char in invalid_chars:
         filename = filename.replace(char, '_')
@@ -287,24 +281,22 @@ def sanitize_filename(filename: str) -> str:
 
 def download_file(url: str, output_path: Path) -> bool:
     """
-    Download a file from a pre-signed URL.
+    Download one file from a pre-signed URL.
 
     Args:
         url: Pre-signed download URL
-        output_path: Local path to save the file
+        output_path: Where to save the file
 
     Returns:
-        True if download succeeded, False otherwise
+        True if the download worked, False if it did not
     """
     try:
-        # Stream the download to handle large files efficiently
+        # Read the file a piece at a time, so a large one fits in memory
         response = requests.get(url, stream=True, timeout=300)
         response.raise_for_status()
 
-        # Create parent directories if needed
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write the file in chunks
         with open(output_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -325,18 +317,17 @@ def download_all_files(
     output_dir: str | None = None,
 ) -> tuple[dict, str]:
     """
-    Download all files from form responses.
+    Download every file named in the API responses.
 
-    Files are organized by form ID and question key in the output directory.
+    Each file lands in output_dir/form_<form_id>/<question_key>/<filename>.
 
     Args:
-        form_responses: List of form response objects from the API
-        output_dir: Base directory for downloads (default: timestamped folder)
+        form_responses: Per-form response objects from the API
+        output_dir: Folder to download into (default: a timestamped folder)
 
     Returns:
         Tuple of (stats dict, output directory path)
     """
-    # Create output directory with timestamp
     if output_dir is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = f'form_files_{timestamp}'
@@ -356,8 +347,8 @@ def download_all_files(
     print('-' * 60)
 
     for form_response in form_responses:
-        # Check if this form had an error
-        # Note: status may be string '200' or int 200 depending on API serialization
+        # Skip forms the API could not return. The status arrives as either the
+        # string '200' or the number 200, so compare it as text.
         status = form_response.get('status')
         if str(status) != '200':
             print(f'\nForm response error (status {status}), skipping')
@@ -371,7 +362,7 @@ def download_all_files(
         print(f'\nForm: {form_id}')
 
         for question in questions:
-            # Only process FileUpload type questions
+            # Only FileUpload questions can hold files
             if question.get('type') != 'FileUpload':
                 continue
 
@@ -394,22 +385,21 @@ def download_all_files(
                 download_url = file_info.get('download_url')
                 file_status = file_info.get('status')
 
-                # Extract just the filename from the path if it contains directories
+                # Some filenames arrive with folders in front, so keep the end
                 if '/' in filename:
                     filename = filename.split('/')[-1]
 
                 filename = sanitize_filename(filename)
 
-                # Skip files without download URLs
+                # No link means the file is not ready to download
                 if not download_url:
                     print(f'    - {filename}: No download URL (status: {file_status})')
                     stats['skipped'] += 1
                     continue
 
-                # Organize files: output_dir/form_<form_id>/question_key/filename
                 file_path = base_path / f'form_{form_id}' / question_key / filename
 
-                # Handle duplicate filenames by appending a number
+                # Two files with the same name: add _1, _2, and so on
                 if file_path.exists():
                     name, ext = os.path.splitext(filename)
                     counter = 1
@@ -434,11 +424,11 @@ def download_all_files(
 
 def print_summary(stats: dict, output_dir: str) -> None:
     """
-    Print a summary of the download operation.
+    Print the download totals.
 
     Args:
-        stats: Dictionary with download statistics
-        output_dir: Directory where files were saved
+        stats: Dictionary of download counts
+        output_dir: Folder the files were saved in
     """
     print('\n' + '=' * 60)
     print('DOWNLOAD SUMMARY')
@@ -457,23 +447,24 @@ def print_summary(stats: dict, output_dir: str) -> None:
 # =============================================================================
 
 
-def get_form_ids_file() -> str:
+def get_form_ids_file(file_path: str | None = None) -> str:
     """
-    Get the form IDs file path from command line args or prompt.
+    Take the form IDs file from the command line, or ask for it.
+
+    Args:
+        file_path: Path given on the command line, if any
 
     Returns:
         Path to the form IDs file
     """
-    # Check command line arguments
-    if len(sys.argv) > 1:
-        return sys.argv[1]
+    if file_path:
+        return file_path
 
-    # Prompt the user
     print('Enter path to form IDs file (one ID per line):')
     file_path = input('> ').strip()
 
     if not file_path:
-        print('Error: No file path provided')
+        print('Error: No file path entered.')
         sys.exit(1)
 
     return file_path
@@ -481,47 +472,54 @@ def get_form_ids_file() -> str:
 
 def main():
     """
-    Main execution function.
-
-    This orchestrates the entire workflow:
-    1. Load configuration
-    2. Load form IDs from file
-    3. Authenticate with the API
-    4. Fetch form file metadata
-    5. Download all files
-    6. Display summary
+    Log in, read the form IDs, then download every file on those forms.
 
     Usage:
         python download_form_files.py <form_ids_file>
-        python download_form_files.py  # prompts for file path
+        python download_form_files.py  # asks for the file path
     """
+    parser = argparse.ArgumentParser(
+        description='Download every file attached to a list of Avela forms'
+    )
+    parser.add_argument(
+        'form_ids_file',
+        nargs='?',
+        default=None,
+        help='File with one form ID per line (prompts if omitted)',
+    )
+    parser.add_argument(
+        '--profile', default=None, help='Named credential set to use (see README)'
+    )
+    args = parser.parse_args()
+
     print('=' * 60)
     print('AVELA API INTEGRATION - FORM FILES DOWNLOAD')
     print('=' * 60)
 
-    # Step 1: Load configuration
-    config = load_config('config.json')
+    # Step 1: Find credentials and any extra settings
+    config = load_config(profile=args.profile)
 
     client_id = config['client_id']
     client_secret = config['client_secret']
     environment = config['environment']
 
-    # Optional: custom output directory
+    # An output_dir setting is optional
     output_dir = config.get('output_dir')
 
-    # Step 2: Get form IDs file and load form IDs
-    form_ids_file = get_form_ids_file()
+    # Step 2: Read the form IDs
+    form_ids_file = get_form_ids_file(args.form_ids_file)
     form_ids = load_form_ids(form_ids_file)
 
     print('\nConfiguration loaded:')
+    print(f'  Credentials: {config["credential_source"]}')
     print(f'  Environment: {environment}')
     print(f'  Form IDs file: {form_ids_file}')
     print(f'  Form IDs: {len(form_ids)} form(s)')
 
-    # Step 3: Authenticate
+    # Step 3: Log in
     access_token = get_access_token(client_id, client_secret, environment)
 
-    # Step 4: Get form file metadata (batch by 100 - API limit)
+    # Step 4: Ask about the files, 100 forms at a time, which is the API limit
     form_responses = []
     chunks = chunk_list(form_ids, 100)
 
@@ -534,25 +532,26 @@ def main():
         responses = get_form_files(access_token, environment, chunk)
         form_responses.extend(responses)
 
-    # Step 5: Download all files
+    # Step 5: Download the files
     stats, output_path = download_all_files(form_responses, output_dir)
 
-    # Step 6: Print summary
+    # Step 6: Print the totals
     print_summary(stats, output_path)
 
-    print('\nIntegration completed successfully!')
+    print('\nDone.')
 
 
 if __name__ == '__main__':
     """
-    Entry point when script is run directly.
+    Run the recipe.
 
     Usage:
         python download_form_files.py form_ids.txt
-        python download_form_files.py  # prompts for file path
+        python download_form_files.py --profile district-a form_ids.txt
+        python download_form_files.py  # asks for the file path
 
-    Make sure you have:
-    1. Created 'config.json' with your credentials
-    2. Created a form IDs file with one UUID per line
+    Before you run it:
+    1. Store your credentials (the README covers the keychain and environment variables)
+    2. Write a form IDs file with one UUID per line
     """
     main()

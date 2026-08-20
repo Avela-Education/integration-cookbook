@@ -8,11 +8,11 @@ Update form answers in bulk by reading from a CSV file.
 - **API Credentials** from Avela (client_id and client_secret)
 - **Form IDs and Question Keys** you want to update
 
-**macOS users:** If you haven't used Python before, you may need to install Xcode Command Line Tools first:
+**macOS users:** If you haven't used Python before, install the Xcode Command Line Tools first:
 ```bash
 xcode-select --install
 ```
-A dialog will appear - click "Install" and wait for it to complete. This provides the compiler tools Python needs to create virtual environments.
+A dialog appears. Click "Install" and wait for it to finish. This gives Python the compiler tools it needs to create virtual environments.
 
 ## Installation
 
@@ -37,29 +37,44 @@ pip install -r requirements.txt
 
 ## Configuration
 
-### 1. Create your configuration file
-
-Copy the example configuration file and fill in your credentials:
-
-```bash
-cp config.example.json config.json
-```
-
-### 2. Edit `config.json` with your credentials
-
-```json
-{
-  "client_id": "your_client_id_here",
-  "client_secret": "your_client_secret_here",
-  "environment": "prod"
-}
-```
+Set up your credentials, then prepare your CSV file.
 
 **Environment options:**
 - `dev` - Development environment
 - `qa` - QA environment
 - `uat` - UAT environment
 - `prod` - Production environment
+
+### 1. Store your credentials
+
+On a laptop, store them once in your computer's keychain:
+
+```bash
+python ../../shared/python/setup_credentials.py
+```
+
+The helper asks for your client id, client secret, and environment, hides the secret as you type it, and stores it encrypted. Add `--show`, `--list`, or `--delete` to see or remove what is stored.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### 2. Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python form_update_client.py --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
 
 ### 3. Prepare your CSV file
 
@@ -85,7 +100,11 @@ f5d3e20e-c05b-50fc-c7c3-b230c0951fa1,grade_level,Number,9
 ### Run the script
 
 ```bash
+# Use the default credentials
 python form_update_client.py
+
+# Use a named profile
+python form_update_client.py --profile district-a
 ```
 
 ### Expected Output
@@ -126,7 +145,8 @@ RESULTS: ✓ Successful: 3 | Failed: 0
 **Problem:** You receive a 401 error when trying to authenticate or update.
 
 **Solution:**
-- Verify your `client_id` and `client_secret` are correct
+- Verify your client id and client secret are correct in whichever source you set up
+- Check where they came from. The script reports it as `client.credential_source`, so you can confirm an older source is not winning
 - Ensure your credentials have access to the specified environment
 - Check that the environment name is correct (dev, qa, uat, prod)
 
@@ -160,11 +180,11 @@ RESULTS: ✓ Successful: 3 | Failed: 0
 
 ## Security Best Practices
 
-- **Never commit `config.json`** - This file is in `.gitignore` for a reason
-- **Keep credentials secure** - Store in environment variables or secure vaults in production
+- **Keep secrets out of files** - Credentials live in the keychain or environment variables, never in a file
+- **Keep credentials secure** - In production, use environment variables or a secrets manager
 - **Use environment-specific credentials** - Don't use production credentials in development
 - **Rotate credentials regularly** - Follow your organization's security policies
-- **Limit API permissions** - Use credentials with minimum necessary permissions
+- **Limit API permissions** - Use credentials with the fewest permissions that do the job
 
 ## Additional Resources
 
@@ -186,13 +206,14 @@ For production use, add retry logic for transient failures:
 ```python
 from time import sleep
 
+
 def update_with_retry(access_token, environment, form_id, questions, max_retries=3):
     for attempt in range(max_retries):
         try:
             return update_form_questions(access_token, environment, form_id, questions)
         except requests.exceptions.RequestException:
             if attempt < max_retries - 1:
-                sleep(2 ** attempt)  # Exponential backoff
+                sleep(2**attempt)  # Exponential backoff
                 continue
             raise
 ```

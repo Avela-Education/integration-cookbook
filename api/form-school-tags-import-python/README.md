@@ -23,33 +23,49 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Create configuration
-cp config.example.json config.json
 ```
 
 ## Configuration
 
-Edit `config.json` with your credentials:
+On a laptop, store your credentials once in your computer's keychain:
 
-```json
-{
-  "client_id": "your_client_id_here",
-  "client_secret": "your_client_secret_here",
-  "environment": "prod"
-}
+```bash
+python ../../shared/python/setup_credentials.py
 ```
+
+The helper asks for your client id, client secret, and environment, hides the secret as you type it, and stores it encrypted. Add `--show`, `--list`, or `--delete` to see or remove what is stored.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python form_school_tags_import.py tags.csv --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
 
 **Environment values:**
 
-| Environment | API Base URL                                            | Token URL                                    |
-| ----------- | ------------------------------------------------------- | -------------------------------------------- |
-| `prod`      | `https://prod.execute-api.apply.avela.org/api/rest/v2`  | `https://auth.avela.org/oauth/token`         |
+| Environment | API Base URL                                              | Token URL                                        |
+| ----------- | --------------------------------------------------------- | ------------------------------------------------ |
+| `prod`      | `https://prod.execute-api.apply.avela.org/api/rest/v2`    | `https://auth.avela.org/oauth/token`             |
 | `staging`   | `https://staging.execute-api.apply.avela.org/api/rest/v2` | `https://avela-staging.us.auth0.com/oauth/token` |
-| `uat`       | `https://uat.execute-api.apply.avela.org/api/rest/v2`   | `https://uat.auth.avela.org/oauth/token`     |
-| `qa`        | `https://qa.execute-api.apply.avela.org/api/rest/v2`    | `https://qa.auth.avela.org/oauth/token`      |
-| `dev`       | `https://dev.execute-api.apply.avela.org/api/rest/v2`   | `https://dev.auth.avela.org/oauth/token`     |
-| `dev2`      | `https://dev2.execute-api.apply.avela.org/api/rest/v2`  | `https://dev2.auth.avela.org/oauth/token`    |
+| `uat`       | `https://uat.execute-api.apply.avela.org/api/rest/v2`     | `https://uat.auth.avela.org/oauth/token`         |
+| `qa`        | `https://qa.execute-api.apply.avela.org/api/rest/v2`      | `https://qa.auth.avela.org/oauth/token`          |
+| `dev`       | `https://dev.execute-api.apply.avela.org/api/rest/v2`     | `https://dev.auth.avela.org/oauth/token`         |
+| `dev2`      | `https://dev2.execute-api.apply.avela.org/api/rest/v2`    | `https://dev2.auth.avela.org/oauth/token`        |
 
 ## CSV Format
 
@@ -66,7 +82,7 @@ f5d3e20e-c05b-50fc-c7c3-b230c1951f01,b2c3d4e5-f6a7-8901-bcde-f12345678901,Inelig
 
 The script automatically looks up tag UUIDs from the API using the tag names in your CSV.
 
-**Important:** All forms in the CSV must belong to the same enrollment period. The script fetches available tags from the first form's enrollment period and uses that for all rows. If your CSV contains forms from different enrollment periods, tag resolution may fail or produce unexpected results.
+**Important:** All forms in the CSV must belong to the same enrollment period. The script reads the available tags from the first form's enrollment period and uses them for every row. If your CSV mixes enrollment periods, the tag lookup can fail or match the wrong tag.
 
 ## Usage
 
@@ -92,11 +108,14 @@ python form_school_tags_import.py tags.csv --sequential
 
 # Custom batch size (default: 100, max: 100)
 python form_school_tags_import.py tags.csv --batch-size 50
+
+# Use a named credential profile
+python form_school_tags_import.py tags.csv --profile district-a
 ```
 
 ### Batch vs Sequential Mode
 
-By default, the script uses **batch mode**, sending up to 100 operations per API request. This is dramatically faster for large imports:
+By default, the script uses **batch mode**, sending up to 100 operations per API request. That is much faster for large imports:
 
 | Rows   | Sequential (~3.3s/row) | Batch (100/request) |
 | ------ | ---------------------- | ------------------- |
@@ -104,7 +123,7 @@ By default, the script uses **batch mode**, sending up to 100 operations per API
 | 1,000  | ~55 min                | ~10 requests (~10s) |
 | 6,000+ | ~5.9 hours             | ~60 requests (~1m)  |
 
-Use `--sequential` to fall back to the legacy one-at-a-time behavior (useful for debugging or if the batch endpoint is unavailable).
+Use `--sequential` for the older one at a time behavior, which helps when you are debugging or when the batch endpoint is unavailable.
 
 ## Output
 
@@ -169,14 +188,15 @@ Tag name matching is case-insensitive ("Eligible For Lottery" matches "eligible 
 
 ## Troubleshooting
 
-| Error | Cause | Solution |
-| ----- | ----- | -------- |
-| `Unauthorized (401)` | Invalid credentials or expired token | Check client_id and client_secret in config.json |
-| `You are not authorized to perform this action` | Missing API permissions | Ensure credentials have `tag:read`, `tag:create` permissions |
-| `Form not found` | Form doesn't exist or credentials can't access it | Verify form UUID and that credentials have access to this organization |
-| `Tag 'xyz' not found` | Tag name doesn't match any available tag | Check spelling, the error shows available tags |
-| `Form, school, or tag not found (404)` | Resource doesn't exist in the system | Verify the form and school UUIDs are correct |
-| `Configuration file not found` | Missing config.json | Copy config.example.json to config.json |
+| Error                                           | Cause                                             | Solution                                                                                                                 |
+| ----------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Unauthorized (401)`                            | Invalid credentials or expired token              | Check the client id and secret in whichever source you set up; `client.credential_source` reports which one was used     |
+| `You are not authorized to perform this action` | Missing API permissions                           | Ensure credentials have `tag:read`, `tag:create` permissions                                                             |
+| `Form not found`                                | Form doesn't exist or credentials can't access it | Verify form UUID and that credentials have access to this organization                                                   |
+| `Tag 'xyz' not found`                           | Tag name doesn't match any available tag          | Check spelling, the error shows available tags                                                                           |
+| `Form, school, or tag not found (404)`          | Resource doesn't exist in the system              | Verify the form and school UUIDs are correct                                                                             |
+| `No credentials found`                          | Nothing checked had both an id and a secret       | Store them with `python ../../shared/python/setup_credentials.py`, or export `AVELA_CLIENT_ID` and `AVELA_CLIENT_SECRET` |
+| `No credentials found` with `--profile`         | Nothing stored for that profile name              | List what exists with `python ../../shared/python/setup_credentials.py --list`, then store the missing profile           |
 
 ## API Endpoints
 

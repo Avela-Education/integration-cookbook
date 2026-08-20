@@ -2,11 +2,11 @@
 
 ## Overview
 
-This recipe demonstrates how to bulk update offer statuses (accept or decline) using the Avela Customer API v2. It reads offer IDs and actions from a CSV file, authenticates via OAuth2, and calls the unified offer status endpoint.
+This recipe updates offer statuses (accept or decline) in bulk using the Avela Customer API v2. It reads offer IDs and actions from a CSV file, signs in with OAuth2, and calls the single offer status endpoint.
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Avela M2M (machine-to-machine) API credentials (client ID and secret)
 - Network access to Avela API endpoints
 - Basic understanding of REST APIs and CSV files
@@ -31,25 +31,42 @@ This recipe demonstrates how to bulk update offer statuses (accept or decline) u
 
 ## Configuration
 
-1. Copy the configuration template:
-   ```bash
-   cp config.example.json config.json
-   ```
+You need three values from Avela:
 
-2. Edit `config.json` with your credentials:
-   ```json
-   {
-     "client_id": "your_client_id",
-     "client_secret": "your_client_secret",
-     "environment": "dev"
-   }
-   ```
+| Value         | Description                                       |
+| ------------- | ------------------------------------------------- |
+| Client ID     | Your OAuth2 client ID (provided by Avela)         |
+| Client secret | Your OAuth2 client secret (provided by Avela)     |
+| Environment   | Target environment: `dev`, `qa`, `uat`, or `prod` |
 
-   | Field           | Description                                       |
-   |-----------------|---------------------------------------------------|
-   | `client_id`     | Your OAuth2 client ID (provided by Avela)         |
-   | `client_secret` | Your OAuth2 client secret (provided by Avela)     |
-   | `environment`   | Target environment: `dev`, `qa`, `uat`, or `prod` |
+On a laptop, store them once in your computer's keychain:
+
+```bash
+python ../../shared/python/setup_credentials.py
+```
+
+The helper asks for the three values, hides the secret as you type it, and stores it encrypted. Add `--show`, `--list`, or `--delete` to see or remove what is stored.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=dev
+```
+
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python offer_status_client.py --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
 
 ## Usage
 
@@ -62,11 +79,14 @@ python offer_status_client.py --csv /path/to/offers.csv
 
 # Dry run - see what would happen without making changes
 python offer_status_client.py --dry-run
+
+# Use a named profile
+python offer_status_client.py --profile district-a
 ```
 
 ## What This Example Does
 
-1. **Loads configuration** from `config.json` (client credentials and environment)
+1. **Finds your credentials** in the first place that has them (environment variables, then the OS keychain)
 2. **Authenticates** with Avela's OAuth2 endpoint using client credentials flow
 3. **Reads the CSV file** and validates each row has a valid offer_id and action
 4. **Groups offers by action** (accept vs decline) for efficient API calls
@@ -109,7 +129,7 @@ Total: 2
 ## CSV Format
 
 | Column     | Description           |
-|------------|-----------------------|
+| ---------- | --------------------- |
 | `offer_id` | UUID of the offer     |
 | `action`   | `accept` or `decline` |
 
@@ -123,13 +143,13 @@ offer_id,action
 ## Offer Statuses
 
 | Status       | Description                                             |
-|--------------|---------------------------------------------------------|
-| **Offered**  | Initial state - offer has been made to the family       |
+| ------------ | ------------------------------------------------------- |
+| **Offered**  | Starting state, the offer has gone to the family        |
 | **Accepted** | Family accepted the offer                               |
 | **Declined** | Family declined the offer                               |
 | **Revoked**  | Admin revoked the offer (not available via this script) |
 
-This script can change offers to `Accepted` or `Declined`. The API allows transitioning between these states (e.g., Accepted → Declined), though organizational policies may restrict certain transitions.
+This script can change offers to `Accepted` or `Declined`. The API allows moving between these states (Accepted to Declined, for example), though your organization's policies may not.
 
 > [!NOTE]
 > For large batches (1000+ offers), consider splitting your CSV into smaller files to avoid timeout issues.
@@ -160,7 +180,7 @@ The audience parameter must match the target environment's GraphQL endpoint.
 
 ### Unified Status Endpoint
 
-Instead of separate accept/decline endpoints, Customer API v2 provides a single endpoint that accepts a `status` field. This makes the API more extensible (new statuses can be added without new endpoints) and simplifies client code.
+Instead of separate accept and decline endpoints, Customer API v2 has one endpoint with a `status` field. New statuses can be added later without new endpoints, and your code stays shorter.
 
 ### Batch Processing
 
@@ -168,13 +188,21 @@ The script groups offers by action (accept/decline) and sends them in batches to
 
 ## Common Issues
 
-**"Configuration file not found"**
-- Run `cp config.example.json config.json` and edit with your credentials
+**"No credentials found"**
+- Nothing the script checked had both an id and a secret. The error message lists both options
+- Quickest fix on a laptop: `python ../../shared/python/setup_credentials.py`
+- On a server or in CI: export `AVELA_CLIENT_ID`, `AVELA_CLIENT_SECRET`, and `AVELA_ENVIRONMENT`
 
 **"Authentication failed"**
-- Verify `client_id` and `client_secret` are correct
-- Ensure `environment` matches where your credentials were provisioned
-- Check for extra whitespace in config values
+- Verify the client id and secret are correct in whichever source you set up
+- Check where they came from. The script reports it as `client.credential_source`
+- Ensure the environment matches where your credentials were issued
+- Check for extra spaces in the values
+
+**Profile has nothing stored**
+- Run `python ../../shared/python/setup_credentials.py --list` to see stored profiles
+- Store the missing one with `--profile <name>`
+- Profile names become lowercase, and anything that is not a letter or a number turns into `-`, so `District A` becomes `district-a`
 
 **"Invalid action" warning**
 - CSV action column must be exactly `accept` or `decline` (case-insensitive)
@@ -203,7 +231,7 @@ Updates the status of one or more offers.
 ```
 
 | Field    | Type   | Description                     |
-|----------|--------|---------------------------------|
+| -------- | ------ | ------------------------------- |
 | `offers` | array  | List of objects with `offer_id` |
 | `status` | string | `"Accepted"` or `"Declined"`    |
 
@@ -227,7 +255,7 @@ Updates the status of one or more offers.
 
 ## Security Best Practices
 
-1. **Never commit credentials** - `config.json` is gitignored for a reason
+1. **Never put credentials in a file** - The keychain and environment variables keep the secret off disk entirely
 2. **Use environment-appropriate credentials** - Don't use prod credentials for testing
 3. **Rotate secrets regularly** - Request new credentials if you suspect exposure
 4. **Validate input data** - Review CSV contents before running against production

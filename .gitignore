@@ -1,12 +1,15 @@
 # Sensitive configuration files with credentials
+# Covers config.json, config.staging.json, config.prod.json, my.config.json, etc.
 config.json
-.mcp.json
+config.*.json
 *.config.json
+.mcp.json
 !*.example.json
 !config.example.json
+# Every .env variant except the committed template
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.key
 *.pem
 *.p12
@@ -124,3 +127,6 @@ temp/
 
 # Personal notes
 standup.md
+
+# Personal scratch scripts. Not part of the cookbook, never published.
+local/

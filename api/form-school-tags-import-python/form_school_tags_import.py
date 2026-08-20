@@ -2,9 +2,9 @@
 """
 Form-School Tags CSV Import
 
-Bulk import or delete form-school tag assignments from a CSV file using the
-Avela Customer API v2. Tags are specified by name (not UUID) and automatically
-resolved via the API.
+Add or remove tags on form-school pairs in bulk, from a CSV file, through the
+Avela Customer API v2. You write tag names in the CSV, not UUIDs, and the
+script looks up the UUIDs for you.
 
 Usage:
     python form_school_tags_import.py tags.csv                    # Add tags (batch mode)
@@ -20,12 +20,12 @@ CSV Format:
     e4c2f10d-...,a1b2c3d4-...,Eligible For Lottery
 
 Required API Permissions:
-    - form:read (to fetch enrollment period from first form)
-    - tag:read (to fetch available tags for name-to-UUID lookup)
-    - tag:create (to add tags to form-school combinations)
-    - tag:delete (only if using --delete mode)
+    - form:read (to read the enrollment period off the first form)
+    - tag:read (to look up each tag name)
+    - tag:create (to add tags to form-school pairs)
+    - tag:delete (only with --delete)
 
-All forms in the CSV must belong to the same enrollment period.
+Every form in the CSV must be in the same enrollment period.
 """
 
 import argparse
@@ -33,9 +33,16 @@ import csv
 import re
 import sys
 
-from avela_client import AvelaClient, create_client_from_config
+try:
+    from avela_client import AvelaClient, create_client
+except ImportError:
+    print('Error: the shared Avela client is not installed in this environment.')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
 
-# UUID validation pattern
+
+# What a UUID looks like
 UUID_PATTERN = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE
 )
@@ -47,7 +54,7 @@ UUID_PATTERN = re.compile(
 
 
 def validate_uuid(value: str) -> bool:
-    """Check if string is a valid UUID."""
+    """Check whether a string is a UUID."""
     return bool(UUID_PATTERN.match(value))
 
 
@@ -60,17 +67,17 @@ def read_csv(
     filepath: str, start_row: int = 0, limit: int | None = None
 ) -> list[tuple[str, str, str, int]]:
     """
-    Parse CSV file and return tag assignments.
+    Read the tag assignments out of a CSV file.
 
-    Expected CSV columns:
-    - Form ID (or App ID as alias)
+    Columns, in any capitalization:
+    - Form ID (or App ID, which means the same thing)
     - School ID
-    - Tag Name (the display name of the tag, case-insensitive)
+    - Tag Name (the name you see in the product)
 
     Args:
         filepath: Path to CSV file
-        start_row: Number of data rows to skip (default: 0)
-        limit: Maximum number of rows to process (default: None = all)
+        start_row: How many data rows to skip (default: 0)
+        limit: How many rows to read at most (default: None, meaning all)
 
     Returns:
         List of (form_id, school_id, tag_name, csv_line_number) tuples
@@ -81,11 +88,10 @@ def read_csv(
         with open(filepath, encoding='utf-8') as f:
             reader = csv.DictReader(f)
 
-            # Normalize headers to uppercase for case-insensitive matching
+            # Uppercase the headers, so their capitalization does not matter
             if reader.fieldnames:
                 reader.fieldnames = [field.upper().strip() for field in reader.fieldnames]
 
-            # Validate required columns (Form ID or App ID alias)
             headers = set(reader.fieldnames or [])
             has_form_id = 'FORM ID' in headers or 'APP ID' in headers
             if not has_form_id:
@@ -97,7 +103,6 @@ def read_csv(
                 print('Error: CSV must have "School ID" column', file=sys.stderr)
                 sys.exit(1)
 
-            # Check for Tag Name column
             if 'TAG NAME' not in headers and 'TAG ID' not in headers:
                 print(
                     'Error: CSV must have "Tag Name" or "Tag ID" column', file=sys.stderr
@@ -105,17 +110,14 @@ def read_csv(
                 sys.exit(1)
             tag_col = 'TAG NAME' if 'TAG NAME' in headers else 'TAG ID'
 
-            # Determine form ID column name
             form_id_col = 'FORM ID' if 'FORM ID' in headers else 'APP ID'
 
             for row_idx, row in enumerate(reader):
-                csv_line = row_idx + 2  # +2 for 1-indexed and header row
+                csv_line = row_idx + 2  # Row 2 is the first data row
 
-                # Skip rows if start_row specified
                 if row_idx < start_row:
                     continue
 
-                # Stop if limit reached
                 if limit is not None and len(records) >= limit:
                     break
 
@@ -139,14 +141,14 @@ def read_csv(
 
 def get_form(client: AvelaClient, form_id: str) -> dict:
     """
-    Fetch a single form to get its enrollment period.
+    Fetch one form, to read its enrollment period.
 
     Args:
-        client: Authenticated AvelaClient instance
+        client: Logged in AvelaClient
         form_id: UUID of the form to fetch
 
     Returns:
-        Form data dict containing enrollment_period.id
+        Form data dict holding enrollment_period.id
     """
     response = client.get(f'/forms/{form_id}')
 
@@ -160,10 +162,10 @@ def get_form(client: AvelaClient, form_id: str) -> dict:
 
 def fetch_tags(client: AvelaClient, enrollment_period_id: str) -> dict[str, str]:
     """
-    Fetch all tags for an enrollment period and build a name-to-ID lookup.
+    Fetch every tag in an enrollment period, keyed by name.
 
     Args:
-        client: Authenticated AvelaClient instance
+        client: Logged in AvelaClient
         enrollment_period_id: UUID of the enrollment period
 
     Returns:
@@ -173,7 +175,7 @@ def fetch_tags(client: AvelaClient, enrollment_period_id: str) -> dict[str, str]
     response.raise_for_status()
     data = response.json()
 
-    # Build case-insensitive lookup: {lowercase_name: id}
+    # Lowercase the names, so their capitalization does not matter
     tag_cache: dict[str, str] = {}
     for tag in data.get('tags', []):
         name = tag.get('name', '').lower()
@@ -188,21 +190,21 @@ def resolve_tag_name(
     tag_name: str, tag_cache: dict[str, str]
 ) -> tuple[str | None, str | None]:
     """
-    Look up a tag name in the cache and return its UUID.
+    Look up one tag name and return its UUID.
 
     Args:
-        tag_name: The tag name from the CSV (case-insensitive)
+        tag_name: The tag name from the CSV, in any capitalization
         tag_cache: Dictionary mapping lowercase names to UUIDs
 
     Returns:
-        Tuple of (tag_id, error_message) - one will be None
+        Tuple of (tag_id, error_message). One of the two is always None.
     """
     tag_id = tag_cache.get(tag_name.lower())
 
     if tag_id:
         return tag_id, None
 
-    # Tag not found - build helpful error message
+    # No such tag, so name a few that do exist
     available = ', '.join(sorted(tag_cache.keys())[:5])
     if len(tag_cache) > 5:
         available += f', ... ({len(tag_cache)} total)'
@@ -214,7 +216,7 @@ def add_tag(
     client: AvelaClient, form_id: str, school_id: str, tag_id: str
 ) -> tuple[bool, int, str]:
     """
-    Add a tag to a form-school choice via the Customer API.
+    Add one tag to one form-school pair.
 
     Returns:
         Tuple of (success: bool, affected_rows: int, error_message: str)
@@ -244,7 +246,7 @@ def delete_tag(
     client: AvelaClient, form_id: str, school_id: str, tag_id: str
 ) -> tuple[bool, int, str]:
     """
-    Remove a tag from a form-school choice via the Customer API.
+    Remove one tag from one form-school pair.
 
     Returns:
         Tuple of (success: bool, affected_rows: int, error_message: str)
@@ -281,15 +283,18 @@ def chunk_operations(
     chunk_size: int = 100,
 ) -> tuple[list[list[dict]], list[tuple[int, str]]]:
     """
-    Validate CSV records and split into batch-sized chunks.
+    Check the CSV rows and group the good ones into batches.
+
+    A row with a bad ID, or a tag name that does not exist, becomes an error
+    instead. The rest are grouped for the batch endpoint.
 
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
         tag_cache: Dictionary mapping lowercase tag names to UUIDs
-        chunk_size: Max operations per batch (default: 100, API max: 100)
+        chunk_size: Rows per batch (default: 100, which is the API maximum)
 
     Returns:
-        Tuple of (chunks, validation_errors) where each chunk is a list of
+        Tuple of (chunks, validation_errors), where each chunk is a list of
         {"form_id", "school_id", "tag_id", "csv_line"} dicts
     """
     validated: list[dict] = []
@@ -325,7 +330,7 @@ def _parse_batch_response(
     response_data: dict, operations: list[dict]
 ) -> tuple[int, int, list[tuple[int, str]]]:
     """
-    Parse a 207 Multi-Status batch response.
+    Read a 207 Multi-Status batch response, which holds one result per tag.
 
     Returns:
         Tuple of (affected_count, skipped_count, errors_list)
@@ -335,7 +340,8 @@ def _parse_batch_response(
     errors: list[tuple[int, str]] = []
 
     responses = response_data.get('responses', [])
-    # Build a lookup of csv_lines per tag_id for error reporting
+
+    # Remember which CSV lines used each tag, so an error can name them
     lines_by_tag: dict[str, list[int]] = {}
     for op in operations:
         lines_by_tag.setdefault(op['tag_id'], []).append(op['csv_line'])
@@ -362,10 +368,10 @@ def add_tags_batch(
     client: AvelaClient, operations: list[dict]
 ) -> tuple[int, int, list[tuple[int, str]]]:
     """
-    Add tags via the batch endpoint.
+    Add a batch of tags in one request.
 
     Args:
-        client: Authenticated AvelaClient
+        client: Logged in AvelaClient
         operations: List of {"form_id", "school_id", "tag_id", "csv_line"}
 
     Returns:
@@ -411,10 +417,10 @@ def delete_tags_batch(
     client: AvelaClient, operations: list[dict]
 ) -> tuple[int, int, list[tuple[int, str]]]:
     """
-    Delete tags via the batch endpoint.
+    Remove a batch of tags in one request.
 
     Args:
-        client: Authenticated AvelaClient
+        client: Logged in AvelaClient
         operations: List of {"form_id", "school_id", "tag_id", "csv_line"}
 
     Returns:
@@ -469,13 +475,13 @@ def process_tags_sequential(
     delete_mode: bool = False,
 ) -> tuple[int, int, int, list[tuple[int, str]]]:
     """
-    Process tag assignments one at a time (legacy sequential mode).
+    Apply the tag assignments one at a time, the older and slower way.
 
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
-        client: Authenticated AvelaClient instance
+        client: Logged in AvelaClient
         tag_cache: Dictionary mapping lowercase tag names to UUIDs
-        dry_run: If True, validate only without making API calls
+        dry_run: If True, check the rows and call nothing
         delete_mode: If True, remove tags instead of adding them
 
     Returns:
@@ -486,16 +492,14 @@ def process_tags_sequential(
     errors: list[tuple[int, str]] = []
     total = len(records)
 
-    # Choose the appropriate API function
     api_fn = delete_tag if delete_mode else add_tag
 
     for idx, (form_id, school_id, tag_name, csv_line) in enumerate(records):
-        # Progress update every 100 rows or at end
+        # Report progress every 100 rows, and at the end
         if (idx + 1) % 100 == 0 or idx + 1 == total:
             pct = int((idx + 1) / total * 100)
             print(f'  {idx + 1}/{total} ({pct}%)...', file=sys.stderr)
 
-        # Validate Form ID and School ID are valid UUIDs
         if not validate_uuid(form_id):
             errors.append((csv_line, f'Invalid UUID in Form ID: {form_id}'))
             continue
@@ -503,7 +507,6 @@ def process_tags_sequential(
             errors.append((csv_line, f'Invalid UUID in School ID: {school_id}'))
             continue
 
-        # Resolve tag name to UUID using the cache
         tag_id, tag_error = resolve_tag_name(tag_name, tag_cache)
         if tag_error:
             errors.append((csv_line, tag_error))
@@ -513,7 +516,6 @@ def process_tags_sequential(
             affected += 1
             continue
 
-        # Make API call to add or remove the tag
         success, affected_rows, error_msg = api_fn(client, form_id, school_id, tag_id)
 
         if not success:
@@ -539,20 +541,19 @@ def process_tags_batch(
     batch_size: int = 100,
 ) -> tuple[int, int, int, list[tuple[int, str]]]:
     """
-    Process tag assignments using batch API endpoints.
+    Apply the tag assignments in batches, which is the fast way.
 
     Args:
         records: List of (form_id, school_id, tag_name, csv_line) tuples
-        client: Authenticated AvelaClient instance
+        client: Logged in AvelaClient
         tag_cache: Dictionary mapping lowercase tag names to UUIDs
-        dry_run: If True, validate only without making API calls
+        dry_run: If True, check the rows and call nothing
         delete_mode: If True, remove tags instead of adding them
-        batch_size: Max operations per batch request (default/max: 100)
+        batch_size: Rows per request (default and maximum: 100)
 
     Returns:
         Tuple of (affected, skipped, error_count, errors_list)
     """
-    # Validate all records and split into chunks
     chunks, validation_errors = chunk_operations(records, tag_cache, batch_size)
     valid_count = sum(len(c) for c in chunks)
 
@@ -569,7 +570,6 @@ def process_tags_batch(
     if dry_run:
         return valid_count, 0, len(validation_errors), validation_errors
 
-    # Process each batch
     affected = 0
     skipped = 0
     errors = list(validation_errors)
@@ -585,7 +585,7 @@ def process_tags_batch(
 
         batch_affected, batch_skipped, batch_errors = batch_fn(client, chunk)
 
-        # Stop on auth failure
+        # A rejected login will reject every later batch too
         if batch_errors and any('Unauthorized' in e[1] for e in batch_errors):
             print('\nError: Unauthorized (401)', file=sys.stderr)
             print('Stopping due to authentication failure.', file=sys.stderr)
@@ -608,10 +608,10 @@ def process_tags(
     batch_size: int = 100,
 ) -> tuple[int, int, int, list[tuple[int, str]]]:
     """
-    Process tag assignments from CSV records.
+    Apply the tag assignments read from the CSV file.
 
-    Uses batch API by default. Pass sequential=True to fall back to
-    single-item API calls.
+    Sends them in batches. Pass sequential=True to send them one at a time
+    instead.
     """
     if sequential:
         return process_tags_sequential(records, client, tag_cache, dry_run, delete_mode)
@@ -620,9 +620,10 @@ def process_tags(
     )
 
 
-def main():
+def main() -> None:
+    """Parse the command line and run the import."""
     parser = argparse.ArgumentParser(
-        description='Import or delete form-school tag assignments from CSV via Avela Customer API'
+        description='Add or remove form-school tags in bulk, from a CSV file'
     )
     parser.add_argument('csv_file', help='Path to CSV file')
     parser.add_argument(
@@ -633,38 +634,35 @@ def main():
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Validate CSV and resolve tags without modifying data',
+        help='Check the CSV file and look up the tags, but change nothing',
     )
     parser.add_argument(
-        '--start-row', type=int, default=0, help='Skip first N data rows (default: 0)'
+        '--start-row', type=int, default=0, help='Skip the first N data rows (default: 0)'
     )
-    parser.add_argument('--limit', type=int, default=None, help='Process only N rows')
+    parser.add_argument('--limit', type=int, default=None, help='Read only N rows')
     parser.add_argument(
         '--sequential',
         action='store_true',
-        help='Use single-item API calls instead of batch (slower, for debugging)',
+        help='Send one row per request instead of batching (slower, for debugging)',
     )
     parser.add_argument(
         '--batch-size',
         type=int,
         default=100,
-        help='Operations per batch request (default: 100, max: 100)',
+        help='Rows per batch request (default: 100, max: 100)',
     )
     parser.add_argument(
-        '--config',
-        default='config.json',
-        help='Path to config file (default: config.json)',
+        '--profile', default=None, help='Named credential set to use (see README)'
     )
 
     args = parser.parse_args()
 
-    # Clamp batch size
+    # 1 is the smallest batch and 100 the largest the API takes
     args.batch_size = min(max(args.batch_size, 1), 100)
 
-    # Display mode information
     if args.delete:
         print(
-            'DELETE MODE - Will remove tags from form-school combinations',
+            'DELETE MODE - Will remove tags from form-school pairs',
             file=sys.stderr,
         )
     if args.dry_run:
@@ -677,18 +675,15 @@ def main():
             file=sys.stderr,
         )
 
-    # Create client from config (handles authentication automatically)
+    # The client finds your credentials and logs in
     try:
-        client = create_client_from_config(args.config)
-    except FileNotFoundError:
-        print(f'Error: Configuration file not found: {args.config}', file=sys.stderr)
-        print('Please copy config.example.json to config.json and add your credentials.')
-        sys.exit(1)
+        client = create_client(profile=args.profile)
     except ValueError as e:
-        print(f'Error: {e}', file=sys.stderr)
+        print(e, file=sys.stderr)
         sys.exit(1)
 
-    # Read CSV to get form IDs and tag names
+    print(f'Credentials: {client.credential_source}', file=sys.stderr)
+
     print(f'\nReading CSV: {args.csv_file}', file=sys.stderr)
     records = read_csv(args.csv_file, args.start_row, args.limit)
 
@@ -701,7 +696,7 @@ def main():
     if args.start_row > 0:
         print(f'  (skipped first {args.start_row} data rows)', file=sys.stderr)
 
-    # Get enrollment period from the first form
+    # Every form must be in one enrollment period, so read it off the first form
     first_form_id = records[0][0]
     print(
         f'\nFetching enrollment period from form: {first_form_id[:8]}...', file=sys.stderr
@@ -715,12 +710,10 @@ def main():
 
     print(f'Enrollment period: {enrollment_period_id[:8]}...', file=sys.stderr)
 
-    # Fetch all tags for this enrollment period
     print('Fetching available tags...', file=sys.stderr)
     tag_cache = fetch_tags(client, enrollment_period_id)
     print(f'Found {len(tag_cache)} tags', file=sys.stderr)
 
-    # Process tags
     action = 'Deleting' if args.delete else 'Processing'
     print(f'\n{action}...', file=sys.stderr)
     affected, skipped, error_count, errors = process_tags(
@@ -733,7 +726,6 @@ def main():
         args.batch_size,
     )
 
-    # Print results
     print('\nResults:', file=sys.stderr)
     if args.dry_run:
         action_label = 'Would delete' if args.delete else 'Would insert'
@@ -748,7 +740,6 @@ def main():
         print(f'  Already existed: {skipped:,}', file=sys.stderr)
         print(f'  Errors: {error_count:,}', file=sys.stderr)
 
-    # Print errors
     if errors:
         print('\nErrors:', file=sys.stderr)
         for csv_line, msg in errors[:20]:
