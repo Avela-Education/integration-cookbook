@@ -97,7 +97,7 @@ Fetching applicants from prod environment...
 - **Method:** POST
 
 ### List Applicants
-- **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/applicants`
+- **Customer API endpoint:** `GET /api/rest/v2/applicants`
 - **Method:** GET
 - **Purpose:** Retrieve applicant data
 - **Pagination:** Automatic (max 1000 per request)

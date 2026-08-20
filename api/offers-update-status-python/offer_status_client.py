@@ -19,9 +19,15 @@ from pathlib import Path
 import requests
 
 try:
-    from avela_client import environment_urls, load_settings, resolve_credentials
-except ImportError:
-    print('Error: the shared Avela client is not installed in this environment.')
+    from avela_client import (
+        DEFAULT_ENVIRONMENT,
+        environment_urls,
+        load_settings,
+        resolve_credentials,
+    )
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
     print("Install this recipe's dependencies and try again:")
     print('    pip install -r requirements.txt')
     sys.exit(1)
@@ -31,7 +37,7 @@ except ImportError:
 # =============================================================================
 
 
-def load_config(profile: str | None = None) -> dict:
+def load_config(profile: str | None = None, required: bool = True) -> dict:
     """
     Find credentials, and read any other settings from the config file.
 
@@ -55,6 +61,13 @@ def load_config(profile: str | None = None) -> dict:
     try:
         credentials = resolve_credentials(profile=profile)
     except ValueError as e:
+        if not required:
+            # A dry run calls no API, so it can go on without credentials
+            config['client_id'] = ''
+            config['client_secret'] = ''
+            config['environment'] = DEFAULT_ENVIRONMENT
+            config['credential_source'] = 'none (dry run)'
+            return config
         print(e)
         sys.exit(1)
 
@@ -113,7 +126,8 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
         access_token = token_data.get('access_token')
         if not access_token:
             print('Error: No access token in the response.')
-            print(f'Response: {token_data}')
+            # Name the fields only. The body could hold another token.
+            print(f'Response fields: {", ".join(sorted(token_data))}')
             sys.exit(1)
 
         expires_in = token_data.get('expires_in', 86400)
@@ -376,7 +390,7 @@ def main():
     print()
 
     # Step 1: Find credentials and any extra settings
-    config = load_config(profile=args.profile)
+    config = load_config(profile=args.profile, required=not args.dry_run)
 
     client_id = config['client_id']
     client_secret = config['client_secret']

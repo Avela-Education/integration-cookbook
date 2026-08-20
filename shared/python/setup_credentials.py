@@ -36,6 +36,7 @@ from avela_client import (
     normalize_profile,
     remember_profile,
     stored_profiles,
+    unsafe_keyring_backend,
 )
 
 NO_KEYCHAIN_HINT = """
@@ -67,24 +68,6 @@ def _require_keyring():
     return keyring
 
 
-def _unsafe_backend(backend) -> str | None:
-    """Return the module name of an unencrypted backend, looking inside chains."""
-    # keyring can wrap several stores, so check each one. keyrings.alt stores
-    # secrets in plain text.
-    members = getattr(backend, 'backends', None)
-    if members:
-        for member in members:
-            found = _unsafe_backend(member)
-            if found:
-                return found
-        return None
-
-    module = backend.__class__.__module__
-    if 'keyrings.alt' in module or 'fail' in module.lower():
-        return module
-    return None
-
-
 def _warn_if_backend_is_not_encrypted(keyring) -> None:
     """
     Stop when the chosen backend does not encrypt what it stores.
@@ -92,7 +75,7 @@ def _warn_if_backend_is_not_encrypted(keyring) -> None:
     Some keyring setups store secrets in a plain file instead of the encrypted
     keychain. Stop rather than write the secret to disk unencrypted.
     """
-    backend = _unsafe_backend(keyring.get_keyring())
+    backend = unsafe_keyring_backend(keyring.get_keyring())
     if backend:
         print(f'Refusing to store: keyring chose the {backend} backend, which')
         print('does not encrypt what it stores. Your secret would go to a plain')
@@ -132,7 +115,9 @@ def store_credentials(profile: str | None) -> None:
     # getpass hides the secret, so it stays out of your screen and shell history
     client_secret = getpass('Client secret (hidden): ').strip()
     environment = (
-        input(f'Environment {VALID_ENVIRONMENTS} [{DEFAULT_ENVIRONMENT}]: ').strip()
+        input(f'Environment {VALID_ENVIRONMENTS} [{DEFAULT_ENVIRONMENT}]: ')
+        .strip()
+        .lower()
         or DEFAULT_ENVIRONMENT
     )
 
@@ -146,6 +131,14 @@ def store_credentials(profile: str | None) -> None:
         print(f'Valid environments: {", ".join(VALID_ENVIRONMENTS)}')
         sys.exit(1)
 
+    # Snapshot what is stored now, so a failed rotation can put it back
+    previous = {}
+    for key in ('client_id', 'client_secret', 'environment'):
+        try:
+            previous[key] = keyring.get_password(service_name, key)
+        except Exception:
+            previous[key] = None
+
     written = []
     try:
         for key, value in (
@@ -156,21 +149,27 @@ def store_credentials(profile: str | None) -> None:
             keyring.set_password(service_name, key, value)
             written.append(key)
     except Exception as exc:
-        # Remove a half-written entry, or later runs see nothing stored
-        survivors = []
+        # Put back what was there before, or remove a half-written entry
+        broken = []
         for key in written:
+            old_value = previous.get(key)
             try:
-                keyring.delete_password(service_name, key)
+                if old_value is None:
+                    keyring.delete_password(service_name, key)
+                else:
+                    keyring.set_password(service_name, key, old_value)
             except Exception:
-                survivors.append(key)
+                broken.append(key)
         print(f'\nCould not write to the keychain: {exc}')
-        if survivors:
+        if broken:
             print(
-                'COULD NOT REMOVE '
-                + ', '.join(survivors)
-                + f'. Check {service_name} in your keychain before you treat '
-                'this credential as absent.'
+                'COULD NOT RESTORE '
+                + ', '.join(broken)
+                + f'. Check {service_name} in your keychain before trusting '
+                'what is stored.'
             )
+        elif any(previous.values()):
+            print('Your previous credentials were put back unchanged.')
         else:
             print('Nothing was left behind.')
         print(NO_KEYCHAIN_HINT)

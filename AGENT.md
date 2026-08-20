@@ -215,7 +215,9 @@ Most users should use `prod` unless they are testing.
 
 ### OAuth2 Audience Format
 
-The `audience` parameter must end in `/v1/graphql`:
+The login request's `audience` parameter must end in `/v1/graphql`. It is a
+fixed value the login requires; nothing in this cookbook calls GraphQL. The
+shared client builds it, so this only matters for raw HTTP:
 
 ```python
 # Correct audience format

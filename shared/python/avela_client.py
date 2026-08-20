@@ -264,12 +264,35 @@ def _read_config_file(config_path: str) -> dict:
             data = json.load(f)
     except json.JSONDecodeError as exc:
         raise ValueError(f'{config_path} is not valid JSON: {exc}') from exc
+    except OSError as exc:
+        raise ValueError(f'Could not read {config_path}: {exc}') from exc
 
     if not isinstance(data, dict):
         raise ValueError(
             f'{config_path} must hold a JSON object, not a {type(data).__name__}.'
         )
     return data
+
+
+def unsafe_keyring_backend(backend) -> str | None:
+    """
+    Return the module name of an unencrypted keyring backend, or None.
+
+    keyring can wrap several stores, so chains are checked all the way down.
+    Anything from keyrings.alt stores secrets in plain text.
+    """
+    members = getattr(backend, 'backends', None)
+    if members:
+        for member in members:
+            found = unsafe_keyring_backend(member)
+            if found:
+                return found
+        return None
+
+    module = backend.__class__.__module__
+    if 'keyrings.alt' in module or 'fail' in module.lower():
+        return module
+    return None
 
 
 def _credentials_from_keyring(
@@ -290,18 +313,13 @@ def _credentials_from_keyring(
     except ImportError:
         return None, None, None
 
-    # keyring can wrap several stores, so check each one. keyrings.alt stores
-    # secrets in plain text.
-    chosen = keyring.get_keyring()
-    for member in getattr(chosen, 'backends', None) or [chosen]:
-        module = member.__class__.__module__
-        if 'keyrings.alt' in module:
-            print(
-                f'  Warning: keyring includes the {module} backend, which '
-                'stores secrets unencrypted.',
-                file=sys.stderr,
-            )
-            break
+    unsafe = unsafe_keyring_backend(keyring.get_keyring())
+    if unsafe:
+        print(
+            f'  Warning: keyring includes the {unsafe} backend, which '
+            'stores secrets unencrypted.',
+            file=sys.stderr,
+        )
 
     try:
         return (
@@ -537,11 +555,14 @@ def resolve_credentials(
         ValueError: If no source had both an ID and a secret, or half of a
             pair was given, or the environment named is not a real one
     """
-    if bool(client_id) != bool(client_secret):
-        missing = 'client_secret' if client_id else 'client_id'
+    if (client_id is not None or client_secret is not None) and not (
+        client_id and client_secret
+    ):
         raise ValueError(
-            f'{missing} is missing. Pass both, or neither to look them up. '
-            'Falling back would run as a different client than the one you named.'
+            'client_id and client_secret were passed, but at least one is '
+            'missing or empty. Pass both with values, or neither to look them '
+            'up. Falling back would run as a different client than the one '
+            'you named.'
         )
 
     # A profile passed in code wins over the one exported in the shell
@@ -730,6 +751,8 @@ class AvelaClient:
         except ValueError:
             # The header can also be a date or malformed. Wait a safe default.
             retry_after = 10
+        # A proxy can send a negative or huge value. Keep the wait sane.
+        retry_after = min(max(retry_after, 1), 300)
         print(
             f'  Rate limited (429). Waiting {retry_after}s (from Retry-After header)...'
         )
@@ -869,17 +892,7 @@ def create_client(
         client = create_client(profile='district-a')    # a specific client
         response = client.get('/forms')
     """
-    credentials = resolve_credentials(environment=environment, profile=profile)
-    client = AvelaClient(
-        client_id=credentials.client_id,
-        client_secret=credentials.client_secret,
-        environment=credentials.environment,
-        profile=credentials.profile,
-    )
-    # Report where the credentials actually came from, not "arguments"
-    client.credential_source = credentials.source
-    client.profile = credentials.profile
-    return client
+    return AvelaClient(environment=environment, profile=profile)
 
 
 # =============================================================================

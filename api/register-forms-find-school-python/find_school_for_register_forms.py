@@ -28,8 +28,9 @@ from datetime import datetime
 
 try:
     from avela_client import create_client, load_settings
-except ImportError:
-    print('Error: the shared Avela client is not installed in this environment.')
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
     print("Install this recipe's dependencies and try again:")
     print('    pip install -r requirements.txt')
     sys.exit(1)

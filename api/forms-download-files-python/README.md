@@ -411,7 +411,7 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 - **Method:** POST
 
 ### Get Form Files
-- **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/forms/files`
+- **Customer API endpoint:** `GET /api/rest/v2/forms/files`
 - **Method:** GET
 - **Parameters:** `form_id` (comma-delimited list of form UUIDs)
 - **Purpose:** Retrieve file metadata and pre-signed download URLs

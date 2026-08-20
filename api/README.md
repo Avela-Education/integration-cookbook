@@ -160,7 +160,7 @@ AWS Secrets Manager, SSM, and `op run` all fill these same variables.
 
 ### config.json (legacy)
 
-Credentials in a `config.json` are no longer used. A run that finds some prints a note telling you to move them to the keychain. It stores the secret in plaintext and now prints a warning. Recipes still read `config.json` for settings that are not secret (`output_dir`, `enrollment_period_id`, and similar). A file with no id and secret in it is skipped when credentials are looked up.
+Recipes read `config.json` for settings that are not secret (`output_dir`, `enrollment_period_id`, and similar). Credentials in one are never used. A run that finds some prints a note telling you to move them to the keychain.
 
 ### Working with several clients
 

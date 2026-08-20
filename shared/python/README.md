@@ -328,12 +328,9 @@ print(client.environment)  # prod
 
 ### Environments
 
-| Environment | Auth URL                     | API URL                                    |
-| ----------- | ---------------------------- | ------------------------------------------ |
-| `prod`      | `https://auth.avela.org`     | `https://prod.execute-api.apply.avela.org` |
-| `uat`       | `https://uat.auth.avela.org` | `https://uat.execute-api.apply.avela.org`  |
-| `qa`        | `https://qa.auth.avela.org`  | `https://qa.execute-api.apply.avela.org`   |
-| `dev`       | `https://dev.auth.avela.org` | `https://dev.execute-api.apply.avela.org`  |
+`prod`, `staging`, `uat`, `qa`, `dev`, `dev2`. You pick the environment name;
+the client builds the Customer API and login URLs for it, so you never type a
+hostname.
 
 ## Using in a Recipe
 

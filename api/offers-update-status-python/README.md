@@ -176,7 +176,7 @@ This recipe uses the OAuth2 "client credentials" grant type for machine-to-machi
 2. Receive an access token (valid for 24 hours)
 3. Include the token in API requests: `Authorization: Bearer {token}`
 
-The audience parameter must match the target environment's GraphQL endpoint.
+The login request also carries an audience value for the target environment. The shared client builds it, so you never type it.
 
 ### Unified Status Endpoint
 

@@ -58,14 +58,8 @@ python form_school_tags_import.py tags.csv --profile district-a
 
 **Environment values:**
 
-| Environment | API Base URL                                              | Token URL                                        |
-| ----------- | --------------------------------------------------------- | ------------------------------------------------ |
-| `prod`      | `https://prod.execute-api.apply.avela.org/api/rest/v2`    | `https://auth.avela.org/oauth/token`             |
-| `staging`   | `https://staging.execute-api.apply.avela.org/api/rest/v2` | `https://avela-staging.us.auth0.com/oauth/token` |
-| `uat`       | `https://uat.execute-api.apply.avela.org/api/rest/v2`     | `https://uat.auth.avela.org/oauth/token`         |
-| `qa`        | `https://qa.execute-api.apply.avela.org/api/rest/v2`      | `https://qa.auth.avela.org/oauth/token`          |
-| `dev`       | `https://dev.execute-api.apply.avela.org/api/rest/v2`     | `https://dev.auth.avela.org/oauth/token`         |
-| `dev2`      | `https://dev2.execute-api.apply.avela.org/api/rest/v2`    | `https://dev2.auth.avela.org/oauth/token`        |
+The script builds the Customer API and login URLs from the environment name
+stored with your credentials, so you never type a hostname.
 
 ## CSV Format
 

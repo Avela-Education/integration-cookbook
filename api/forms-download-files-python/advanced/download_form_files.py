@@ -9,7 +9,7 @@ The script:
 3. Saves every file under a folder named for the student, when the input file
    carries names
 
-It writes a log file, and it skips any form folder that already holds files, so
+It writes a log file, and it skips any form folder that already holds files, when output_dir is set in config.json (the default folder is timestamped per run, so a rerun starts fresh), so
 you can stop it and start it again. Logging in, staying under the rate limit,
 and retrying come from the shared avela_client module.
 
@@ -29,8 +29,9 @@ import requests
 
 try:
     from avela_client import AvelaClient, create_client, load_settings
-except ImportError:
-    print('Error: the shared Avela client is not installed in this environment.')
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
     print("Install this recipe's dependencies and try again:")
     print('    pip install -r requirements.txt')
     sys.exit(1)

@@ -49,10 +49,10 @@ All API examples use the **client credentials flow**:
 
 ### API Endpoints Structure
 - **Auth:** `https://{env}.auth.avela.org/oauth/token`
-- **REST v2:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/`
-- **GraphQL:** `https://{env}.api.apply.avela.org/v1/graphql`
+- **Customer API (REST v2):** `https://{env}.execute-api.apply.avela.org/api/rest/v2/`
+- **Login audience:** `https://{env}.api.apply.avela.org/v1/graphql` (a fixed value the login request requires; nothing in this cookbook calls it)
 
-Environments: `dev`, `qa`, `uat`, `prod` (prod URLs omit the `{env}.` prefix)
+Environments: `dev`, `qa`, `uat`, `prod`. Prod auth and audience URLs omit the `{env}.` prefix, but the prod Customer API URL keeps it: `https://prod.execute-api.apply.avela.org`.
 
 ### Pagination Pattern
 API responses use offset-based pagination:
@@ -273,7 +273,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 **Notes:**
 - The audience must include `/v1/graphql` suffix
-- For prod, URLs omit the environment prefix (e.g., `https://auth.avela.org/oauth/token`)
+- Prod auth omits the environment prefix (`https://auth.avela.org/oauth/token`), but the prod Customer API host keeps it (`prod.execute-api.apply.avela.org`)
 - The spec is ~180KB and includes all v2 endpoints
 - Interactive docs: `https://{env}.api-docs.avela.dev/v2/index.html`
 
