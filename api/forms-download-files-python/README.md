@@ -1,6 +1,6 @@
 # Download Form Files - Python
 
-A comprehensive Python script demonstrating how to retrieve file upload questions from forms and download all associated file attachments using pre-signed URLs.
+Find the file upload questions on a set of forms and download every attached file.
 
 ## Overview
 
@@ -11,7 +11,7 @@ This example shows how to:
 - Download files using pre-signed URLs
 - Organize downloaded files by form ID and question
 
-Perfect for backing up form attachments, migrating files, or processing uploaded documents.
+Use it to back up form attachments, move files somewhere else, or process uploaded documents.
 
 ## See It In Action
 
@@ -28,7 +28,7 @@ Perfect for backing up form attachments, migrating files, or processing uploaded
 
 ## Setup Virtual Environment (Recommended)
 
-It's recommended to use a virtual environment to avoid dependency conflicts with other Python projects.
+A virtual environment keeps this recipe's dependencies separate from your other Python projects.
 
 ### Create Virtual Environment
 
@@ -92,28 +92,57 @@ pip install -r requirements.txt
 
 ## Configuration
 
-1. Copy the example configuration:
+### 1. Store your credentials
+
+You need your OAuth2 client id and client secret from Avela, plus the environment you are working in: `prod`, `qa`, `uat`, or `dev`.
+
+On a laptop, store them once in your computer's keychain:
+
 ```bash
-cp config.example.json config.json
+python ../../shared/python/setup_credentials.py
 ```
 
-2. Edit `config.json` with your credentials:
+The helper asks for the three values, hides the secret as you type it, and stores it encrypted. Add `--show`, `--list`, or `--delete` to see or remove what is stored.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### 2. Set the output directory (optional)
+
+`output_dir` is a setting, not a secret, so it stays in `config.json` no matter where your credentials live. Create the file with just that key and leave the credential fields out:
+
 ```json
 {
-  "client_id": "your_client_id_here",
-  "client_secret": "your_client_secret_here",
-  "environment": "prod",
   "output_dir": "downloaded_files"
 }
 ```
 
-**Configuration Options:**
-- `client_id` - Your OAuth2 client ID (provided by Avela)
-- `client_secret` - Your OAuth2 client secret (keep secure!)
-- `environment` - Target environment: `prod`, `qa`, `uat`, or `dev`
-- `output_dir` - (Optional) Custom output directory name
+The script ignores a `config.json` that has no client id and secret, so a settings only file prints no plaintext warning.
 
-3. Create a form IDs file (one UUID per line):
+### 3. Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python download_form_files.py form_ids.txt --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every credential source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`.
+
+Settings such as `output_dir` come from `config.json`, with `config.district-a.json` layered over it when you run with a profile. Credentials never come from these files. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
+
+### 4. Create a form IDs file
+
+One UUID per line:
+
 ```bash
 cp form_ids.example.txt form_ids.txt
 ```
@@ -133,11 +162,14 @@ python download_form_files.py form_ids.txt
 
 # Or run without argument to be prompted
 python download_form_files.py
+
+# Use a named profile
+python download_form_files.py form_ids.txt --profile district-a
 ```
 
 ## What This Example Does
 
-1. **Loads Configuration** - Reads credentials from `config.json`
+1. **Finds Credentials** - Takes them from the first place that has them (environment variables, then the OS keychain)
 2. **Loads Form IDs** - Reads form IDs from the specified text file
 3. **Authenticates** - Obtains an OAuth2 access token (valid for 24 hours)
 4. **Fetches File Metadata** - Automatically batches API calls (100 forms per request)
@@ -225,7 +257,7 @@ The `GET /rest/v2/forms/files` endpoint is a batch endpoint that:
 response = requests.get(
     f'{api_base}/forms/files',
     params={'form_id': 'uuid1,uuid2,uuid3'},
-    headers={'Authorization': f'Bearer {token}'}
+    headers={'Authorization': f'Bearer {token}'},
 )
 ```
 
@@ -274,14 +306,21 @@ The API returns responses for each form:
 
 ## Common Issues
 
-### "Configuration file not found"
-**Problem:** `config.json` doesn't exist
+### "No credentials found"
+**Problem:** Nothing the script checked had both a client id and a client secret. The error message lists both options.
 
-**Solution:**
+**Solution:** set up any one of them.
 ```bash
-cp config.example.json config.json
-# Edit config.json with your credentials
+# OS keychain (recommended on a laptop)
+python ../../shared/python/setup_credentials.py
+
+# Environment variables (recommended for servers, CI, and containers)
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
 ```
+
+If you passed `--profile`, check that the profile actually has credentials stored: `python ../../shared/python/setup_credentials.py --list`.
 
 ### "Form IDs file not found"
 **Problem:** The specified form IDs file doesn't exist
@@ -311,9 +350,10 @@ cp form_ids.example.txt form_ids.txt
 **Problem:** Invalid credentials or wrong environment
 
 **Solutions:**
-1. Verify `client_id` and `client_secret` in `config.json`
-2. Confirm you're using the correct environment (usually `prod`)
-3. Check for extra spaces or quotes in credentials
+1. Verify the client id and secret in whichever source you set up
+2. Check where they came from. The script reports it as `client.credential_source`
+3. Confirm you're using the correct environment (usually `prod`)
+4. Check for extra spaces or quotes in credentials
 
 ### Module not found errors
 **Problem:** Dependencies not installed
@@ -356,6 +396,7 @@ for question in questions:
 For large downloads, track progress:
 ```python
 import time
+
 start_time = time.time()
 # ... after downloads complete
 elapsed = time.time() - start_time
@@ -370,7 +411,7 @@ print(f'Downloaded {stats["downloaded"]} files in {elapsed:.1f} seconds')
 - **Method:** POST
 
 ### Get Form Files
-- **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/forms/files`
+- **Customer API endpoint:** `GET /api/rest/v2/forms/files`
 - **Method:** GET
 - **Parameters:** `form_id` (comma-delimited list of form UUIDs)
 - **Purpose:** Retrieve file metadata and pre-signed download URLs
@@ -399,9 +440,9 @@ See [advanced/README.md](./advanced/README.md) for details.
 
 ## Security Best Practices
 
-- Never commit `config.json` to version control
-- Use environment variables in production
-- Downloaded files may contain sensitive data - handle and delete securely
+- Prefer the OS keychain on a laptop and environment variables in production; both keep the secret out of the repository
+- Keep secrets out of files; credentials live in the keychain or environment variables
+- Downloaded files may contain sensitive student data, so store them carefully and delete them when you are done
 
 ---
 

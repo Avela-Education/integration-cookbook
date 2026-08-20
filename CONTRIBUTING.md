@@ -1,11 +1,11 @@
 # Contributing to Integration Cookbook
 
-Thank you for your interest in contributing to the Avela Integration Cookbook! This document provides guidelines and standards for contributing examples, documentation, and improvements.
+Thank you for contributing to the Avela Integration Cookbook. This page covers the standards for examples and documentation.
 
 ## 🎯 Ways to Contribute
 
-- **🐛 Report bugs** - Found an issue with an example? Let us know!
-- **💡 Request examples** - Need an integration pattern? Suggest it!
+- **🐛 Report bugs** - Found a problem with an example? Tell us
+- **💡 Request examples** - Need an integration pattern? Suggest it
 - **📝 Improve documentation** - Better explanations help everyone
 - **🔧 Submit new examples** - Share your integration solutions
 - **✅ Review pull requests** - Help maintain quality
@@ -24,20 +24,44 @@ Thank you for your interest in contributing to the Avela Integration Cookbook! T
 Each example should follow this structure:
 
 ```
-category/subcategory/example-name/language/
+api/{resource}-{action}-{language}/
 ├── README.md                  # Example documentation
 ├── example_script.py          # Main code file
 ├── requirements.txt           # Dependencies (Python)
-├── package.json              # Dependencies (Node.js)
-├── config.example.json        # Configuration template
-└── .env.example              # Alternative config approach
+├── package.json               # Dependencies (Node.js)
+└── config.example.json        # Optional, non-secret settings only
 ```
+
+### Credentials
+
+New recipes must get credentials from the shared client rather than reading a config file themselves:
+
+```python
+from avela_client import create_client
+
+client = create_client()
+```
+
+`create_client()` checks environment variables, then the OS keychain. To pass credentials in code, construct `AvelaClient(client_id=..., client_secret=...)` directly. Call it and your recipe works with every storage option a user might have picked, and it supports profiles.
+
+If your recipe takes command line arguments, add a `--profile` option and pass the value straight through, so someone with several Avela clients can pick one per run.
+
+Print `client.credential_source` in your startup banner, the way the existing recipes do. It names the source without revealing anything, so it is safe to put in your README's expected output.
+
+
+```
+AVELA_CLIENT_ID=your_client_id
+AVELA_CLIENT_SECRET=your_client_secret
+AVELA_ENVIRONMENT=prod
+```
+
+Ship a `config.example.json` only if your recipe has non-secret settings worth templating, such as an output directory or a list of form template keys. It must never contain `client_id` or `client_secret`. Credentials come from `create_client()`, so do not write new code that opens `config.json` directly. Full credential documentation: [`shared/python/README.md`](shared/python/README.md).
 
 ### Code Style
 
 #### Python
 
-We use [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Before submitting a PR, ensure your code passes all checks:
+We use [ruff](https://docs.astral.sh/ruff/) to lint and format. Your code must pass both checks before you open a PR:
 
 ```bash
 # Install uv (if not already installed)
@@ -71,13 +95,13 @@ uv run ruff format .
 
 #### General
 - **Comments**: Explain *why*, not *what*
-- **Error handling**: Show proper patterns without over-engineering
+- **Error handling**: Show good patterns without overdoing it
 - **Minimal dependencies**: Use standard libraries where possible
 - **Educational**: Code should teach, not just work
 
 ### README Template
 
-Each example must include a comprehensive README:
+Each example needs a full README:
 
 ```markdown
 # [Example Name]
@@ -99,9 +123,11 @@ npm install
 
 ## Configuration
 ```bash
-cp config.example.json config.json
-# Edit config.json with your credentials
+# Store credentials in the OS keychain (it asks for the values)
+python ../../shared/python/setup_credentials.py
 ```
+On a server or in CI there is no keychain, so set `AVELA_CLIENT_ID`,
+`AVELA_CLIENT_SECRET`, and `AVELA_ENVIRONMENT` in your environment instead. See
 
 ## Usage
 ```bash
@@ -144,18 +170,18 @@ Show what success looks like
 - ❌ Internal URLs or endpoints
 
 **Always include:**
-- ✅ `.example` files for configuration
+- ✅ Credentials from `create_client()`, never a direct config file read
 - ✅ Clear documentation on where to get credentials
-- ✅ Environment variable usage
 - ✅ Input validation examples
 - ✅ Proper error handling
 
 ### Testing Requirements
 
-Before submitting, ensure your example:
+Before submitting, check that your example:
 
 - [ ] **Runs successfully** on a clean system
 - [ ] **Dependencies install** without errors
+- [ ] **Credentials work** from environment variables and from the keychain
 - [ ] **Configuration is clear** - documented in README
 - [ ] **Includes sample output** - shows what to expect
 - [ ] **Handles errors gracefully** - doesn't crash on common issues
@@ -174,9 +200,9 @@ git checkout -b feature/your-example-name
 ### 2. Make Your Changes
 
 - Follow the example standards above
-- Add comprehensive README
+- Add a full README
 - Test thoroughly
-- Update main README if adding new category
+- Update the main README if you add a new category
 
 ### 3. Commit Guidelines
 
@@ -204,15 +230,16 @@ git commit -m "Update REST API documentation"
 ### Pull Request Checklist
 
 - [ ] Example follows directory structure
-- [ ] README is comprehensive and clear
+- [ ] README is complete and clear
 - [ ] Code passes linting (`uv run ruff check .` and `uv run ruff format --check .`)
+- [ ] Credentials come from `create_client()`
 - [ ] No credentials or sensitive data
 - [ ] Dependencies are documented
 - [ ] Example has been tested
 - [ ] Related documentation updated
 - [ ] PR description explains the changes
 
-**Note:** CI will automatically run ruff on your PR. Ensure linting passes before requesting review.
+**Note:** CI runs ruff on your PR. Make sure linting passes before you ask for review.
 
 ## 🐛 Reporting Issues
 
@@ -245,7 +272,7 @@ Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md):
 
 ## 🔍 Code Review Process
 
-All submissions require review. Reviewers will check:
+Every submission is reviewed. Reviewers check:
 
 1. **Functionality** - Does the example work?
 2. **Code quality** - Is it well-written and documented?
@@ -273,7 +300,7 @@ All submissions require review. Reviewers will check:
 
 ## 📜 Code of Conduct
 
-Please note that this project has a [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to abide by its terms.
+This project has a [Code of Conduct](CODE_OF_CONDUCT.md). By taking part, you agree to follow it.
 
 ---
 

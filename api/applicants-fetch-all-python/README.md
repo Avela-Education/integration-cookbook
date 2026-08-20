@@ -7,11 +7,11 @@ Fetch applicants with automatic pagination and export to CSV.
 - **Python 3.10 or higher**
 - **API Credentials** from Avela (client_id and client_secret)
 
-**macOS users:** If you haven't used Python before, you may need to install Xcode Command Line Tools first:
+**macOS users:** If you haven't used Python before, install the Xcode Command Line Tools first:
 ```bash
 xcode-select --install
 ```
-A dialog will appear - click "Install" and wait for it to complete.
+A dialog appears. Click "Install" and wait for it to finish.
 
 ## Installation
 
@@ -28,29 +28,45 @@ pip install -r requirements.txt
 
 ## Configuration
 
-1. Copy the example configuration:
+You need your OAuth2 client id and client secret from Avela, plus the environment you are working in: `prod`, `qa`, `uat`, or `dev`.
+
+On a laptop, store them once in your computer's keychain:
+
 ```bash
-cp config.example.json config.json
+python ../../shared/python/setup_credentials.py
 ```
 
-2. Edit `config.json` with your credentials:
-```json
-{
-  "client_id": "your_client_id_here",
-  "client_secret": "your_client_secret_here",
-  "environment": "prod"
-}
+The helper asks for the three values, hides the secret as you type it, and stores it encrypted. Nothing is written into the repository. Add `--show`, `--list`, or `--delete` to see or remove what is stored.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
 ```
 
-**Configuration Options:**
-- `client_id` - Your OAuth2 client ID (provided by Avela)
-- `client_secret` - Your OAuth2 client secret (keep secure!)
-- `environment` - Target environment: `prod`, `qa`, `uat`, or `dev`
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python avela_api_client.py --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
 
 ## Usage
 
 ```bash
+# Use the default credentials
 python avela_api_client.py
+
+# Use a named profile
+python avela_api_client.py --profile district-a
 ```
 
 ## Expected Output
@@ -81,7 +97,7 @@ Fetching applicants from prod environment...
 - **Method:** POST
 
 ### List Applicants
-- **Endpoint:** `https://{env}.execute-api.apply.avela.org/api/rest/v2/applicants`
+- **Customer API endpoint:** `GET /api/rest/v2/applicants`
 - **Method:** GET
 - **Purpose:** Retrieve applicant data
 - **Pagination:** Automatic (max 1000 per request)
@@ -98,9 +114,10 @@ Fetching applicants from prod environment...
 
 ## Security Best Practices
 
-- Never commit `config.json` to version control
-- Use environment variables in production
-- Rotate credentials regularly
+- Prefer the OS keychain on a laptop and environment variables on a server; both keep the secret out of the repository
+- Keep secrets out of files; credentials live in the keychain or environment variables
+- Rotate credentials regularly, and request new ones if you suspect exposure
+- Use credentials scoped to the environment you are working in, not production credentials for testing
 
 ---
 

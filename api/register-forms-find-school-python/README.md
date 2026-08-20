@@ -2,11 +2,11 @@
 
 ## Overview
 
-Demonstrates how to reliably identify which school a registration form belongs to, **even when the accepted offer has been revoked or deleted**. This is useful for BI/reporting teams that need to match every register form to a school.
+Find which school a registration form belongs to, **even when the accepted offer has been revoked or deleted**. Reporting teams use this to match every register form to a school.
 
 ## The Problem
 
-Register forms are created when a family accepts an offer. The `previous_offer_id` field on the register form points to that offer. However, if the offer is later revoked or declined with no replacement, the offer may no longer appear in the API — leaving the register form with no obvious link to a school.
+Register forms are created when a family accepts an offer. The `previous_offer_id` field on the register form points to that offer. However, if the offer is later revoked or declined with no replacement, the offer may no longer appear in the API, leaving the register form with no obvious link to a school.
 
 ## The Solution
 
@@ -18,7 +18,7 @@ Register Form
                             └── /school_choices → Schools (always present)
 ```
 
-`previous_form_id` always points to the apply (enrollment) form, regardless of offer state. The school choices on the apply form are the authoritative source for which schools the applicant applied to.
+`previous_form_id` always points to the apply (enrollment) form, whatever happened to the offer. The school choices on that form are the reliable record of where the applicant applied.
 
 ## Prerequisites
 
@@ -39,41 +39,78 @@ pip install -r requirements.txt
 
 ## Configuration
 
+This recipe needs two things: credentials, and the settings that tell it which forms to scan.
+
+### 1. Store your credentials
+
+On a laptop, store them once in your computer's keychain:
+
+```bash
+python ../../shared/python/setup_credentials.py
+```
+
+The helper asks for your client id, client secret, and environment, hides the secret as you type it, and stores it encrypted.
+
+On a server, in a container, or in CI there is no keychain to unlock, so export the values instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+The script checks environment variables first, then the keychain, so a scheduled job can override whatever you stored on your own machine.
+
+### 2. Set the scan settings
+
+`enrollment_period_id` and `form_template_keys` are settings, not secrets, so they live in `config.json` no matter where your credentials come from:
+
 ```bash
 cp config.example.json config.json
 ```
 
-Edit `config.json` with your credentials:
+Fill in the settings. The template holds no credentials, so the file stays safe to keep alongside your code:
 
 ```json
 {
-  "client_id": "your_client_id",
-  "client_secret": "your_client_secret",
-  "environment": "prod",
   "enrollment_period_id": "your_enrollment_period_id",
   "form_template_keys": ["register-for-arizona-schools", "register-for-texas-schools"]
 }
 ```
 
-| Field                 | Required | Description                                                   |
-| --------------------- | -------- | ------------------------------------------------------------- |
-| `client_id`           | Yes      | OAuth2 client ID                                              |
-| `client_secret`       | Yes      | OAuth2 client secret                                          |
-| `environment`         | Yes      | `prod`, `uat`, `qa`, or `dev`                                 |
-| `enrollment_period_id`| Yes      | UUID of the enrollment period to scan                         |
-| `form_template_keys`  | No       | List of template keys to filter by (recommended for speed)    |
+| Field                  | Required | Description                                                |
+| ---------------------- | -------- | ---------------------------------------------------------- |
+| `enrollment_period_id` | Yes      | UUID of the enrollment period to scan                      |
+| `form_template_keys`   | No       | List of template keys to filter by (recommended for speed) |
+
+The file holds settings only. The environment comes from your stored credentials or `AVELA_ENVIRONMENT`.
+
+### 3. Working with several clients
+
+Store one set of credentials per client under a name, then pick the name when you run:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python find_school_for_register_forms.py --profile district-a
+```
+
+`AVELA_PROFILE=district-a` does the same as the flag. The name changes every credential source: `AVELA_DISTRICT_A_CLIENT_ID` and keychain service `avela-api:district-a`. It also picks the settings file: `config.district-a.json` is layered over `config.json`, so a profile file can set just the enrollment period and inherit the rest. See [shared/python/README.md](../../shared/python/README.md) for the full explanation.
 
 ## Usage
 
 ```bash
+# Use the default credentials
 python find_school_for_register_forms.py
+
+# Use a named profile
+python find_school_for_register_forms.py --profile district-a
 ```
 
 ## What This Example Does
 
 1. **Authenticates** with the Avela API using OAuth2 client credentials
 2. **Fetches forms** for the enrollment period, filtered by `form_template_keys` if configured
-3. **Fetches form detail** for each form to get `previous_form_id` — forms with this field set are register forms
+3. **Fetches form detail** for each form to get `previous_form_id`. Forms with this field set are register forms
 4. **Follows `previous_form_id`** to the linked apply form
 5. **Fetches school choices** from the apply form (cached to avoid redundant calls)
 6. **Matches the school** using this priority:
@@ -122,36 +159,36 @@ Exported 538 rows to: register_form_schools_20260401_120000.csv
 
 ## CSV Output Columns
 
-| Column                       | Description                                              |
-| ---------------------------- | -------------------------------------------------------- |
-| `register_form_id`           | UUID of the register form                                |
-| `applicant_id`               | UUID of the applicant                                    |
-| `applicant_reference_id`     | Human-readable applicant reference ID                    |
-| `previous_form_id`           | UUID of the linked apply form                            |
-| `previous_offer_id`          | UUID of the offer that created this form (may be stale)  |
-| `matched_school_id`          | UUID of the matched school                               |
-| `matched_school_reference_id`| Human-readable school reference ID                       |
-| `match_method`               | How the school was determined (see below)                |
-| `all_schools`                | All schools on the apply form (semicolon-separated)      |
+| Column                        | Description                                             |
+| ----------------------------- | ------------------------------------------------------- |
+| `register_form_id`            | UUID of the register form                               |
+| `applicant_id`                | UUID of the applicant                                   |
+| `applicant_reference_id`      | Human-readable applicant reference ID                   |
+| `previous_form_id`            | UUID of the linked apply form                           |
+| `previous_offer_id`           | UUID of the offer that created this form (may be stale) |
+| `matched_school_id`           | UUID of the matched school                              |
+| `matched_school_reference_id` | Human-readable school reference ID                      |
+| `match_method`                | How the school was determined (see below)               |
+| `all_schools`                 | All schools on the apply form (semicolon-separated)     |
 
 ## Match Methods
 
-| Method                              | Meaning                                                        |
-| ----------------------------------- | -------------------------------------------------------------- |
-| `ACCEPTED_OFFER`                    | Apply form has a currently accepted offer at this school        |
-| `PREVIOUS_OFFER (Revoked)`          | The offer that created the reg form was revoked but is on the apply form |
-| `PREVIOUS_OFFER (Declined)`         | The offer that created the reg form was declined but is on the apply form |
-| `SINGLE_SCHOOL`                     | Only one school on the apply form — unambiguous match          |
-| `AMBIGUOUS`                         | Multiple schools, no accepted offer — review manually          |
-| `NO_SCHOOL_CHOICES`                 | Apply form has no school choices                               |
+| Method                      | Meaning                                                                   |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `ACCEPTED_OFFER`            | Apply form has a currently accepted offer at this school                  |
+| `PREVIOUS_OFFER (Revoked)`  | The offer that created the reg form was revoked but is on the apply form  |
+| `PREVIOUS_OFFER (Declined)` | The offer that created the reg form was declined but is on the apply form |
+| `SINGLE_SCHOOL`             | Only one school on the apply form, so the match is unambiguous            |
+| `AMBIGUOUS`                 | Multiple schools and no accepted offer, so review manually                |
+| `NO_SCHOOL_CHOICES`         | Apply form has no school choices                                          |
 
 ## Key Concepts
 
 ### Why `previous_form_id` is more reliable than `previous_offer_id`
 
-- `previous_form_id` links to the **apply form** — this is a structural link that doesn't change
-- `previous_offer_id` links to a **specific offer** — if that offer is revoked or deleted, the link becomes stale
-- The school choices on the apply form persist regardless of offer state
+- `previous_form_id` links to the **apply form**, and that link never changes
+- `previous_offer_id` links to a **specific offer**, so if that offer is revoked or deleted the link goes nowhere
+- The school choices on the apply form stay put whatever happens to the offer
 
 ### Rate Limiting
 
@@ -162,13 +199,18 @@ This script uses the shared `AvelaClient` which automatically:
 
 ## API Endpoints Used
 
-| Endpoint                        | Purpose                                      |
-| ------------------------------- | -------------------------------------------- |
-| `GET /forms`                    | List register forms with pagination          |
-| `GET /forms/{id}`               | Get form detail (previous_form_id)           |
-| `GET /forms/{id}/school_choices`| Get schools and offers for the apply form    |
+| Endpoint                         | Purpose                                   |
+| -------------------------------- | ----------------------------------------- |
+| `GET /forms`                     | List register forms with pagination       |
+| `GET /forms/{id}`                | Get form detail (previous_form_id)        |
+| `GET /forms/{id}/school_choices` | Get schools and offers for the apply form |
 
 ## Troubleshooting
+
+**"No credentials found"**
+- Nothing the script checked had both an id and a secret. The error message lists both options
+- Quickest fix on a laptop: `python ../../shared/python/setup_credentials.py`
+- If you passed `--profile`, confirm that profile has credentials stored with `python ../../shared/python/setup_credentials.py --list`
 
 **"No forms found"**
 - Verify `enrollment_period_id` is correct
@@ -180,6 +222,6 @@ This script uses the shared `AvelaClient` which automatically:
 
 ## Related Examples
 
-- `applicants-fetch-all-python/` — Fetch applicants with pagination
-- `form-school-tags-import-python/` — Import school tags via API
-- `offers-update-status-python/` — Update offer statuses
+- `applicants-fetch-all-python/`: Fetch applicants with pagination
+- `form-school-tags-import-python/`: Import school tags via API
+- `offers-update-status-python/`: Update offer statuses

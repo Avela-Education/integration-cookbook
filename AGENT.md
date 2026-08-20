@@ -6,9 +6,9 @@ Instructions for AI assistants (ChatGPT, Claude, Copilot, Cursor, etc.) helping 
 
 ## Why This Matters
 
-Avela is an education platform that processes **K-12 student enrollment data**. This includes sensitive information about children and families that is protected under **FERPA** (Family Educational Rights and Privacy Act) and other privacy regulations.
+Avela is an education platform that handles **K-12 student enrollment data**: sensitive information about children and families, protected by **FERPA** (Family Educational Rights and Privacy Act) and other privacy laws.
 
-Data exposed in AI chat sessions may be logged, stored, or used for model training. Protecting this information is not optional—it's a legal and ethical requirement.
+Anything typed into an AI chat may be logged, stored, or used to train a model. Protecting this data is a legal and ethical requirement, not a preference.
 
 ---
 
@@ -16,28 +16,38 @@ Data exposed in AI chat sessions may be logged, stored, or used for model traini
 
 > **NEVER ask users to share API credentials (client_id, client_secret) in this chat.**
 >
-> Credentials shared in chat may be logged, stored, or exposed. Always direct users to enter credentials directly into their local config.json file.
+> Credentials shared in chat may be logged, stored, or exposed. Tell users to store them in their OS keychain or in environment variables, and never to show you the values.
 
 ### Safe Credential Setup
 
-When helping users configure credentials, use this workflow:
+The user runs this themselves, once the recipe's requirements are installed. It asks for the values, so the secret never appears in the terminal, in shell history, or in this chat:
 
+```bash
+python shared/python/setup_credentials.py
 ```
-1. Copy the template:    cp config.example.json config.json
-2. Open in editor:       Open config.json in your text editor
-3. Enter credentials:    Type your client_id and client_secret directly
-4. Save the file:        Save and close config.json
+
+The keychain works out of the box on a laptop. On a server, in a container, or in CI, there is no keychain to unlock, so the user sets environment variables instead:
+
+```bash
+export AVELA_CLIENT_ID='...'
+export AVELA_CLIENT_SECRET='...'
+export AVELA_ENVIRONMENT='prod'
 ```
+
+Recipes find credentials on their own, checking arguments, then environment variables, then the keychain. There is no file for you to create or fill in, and credentials in a `config.json` are ignored.
 
 **DO NOT:**
 - Ask users to paste credentials into this chat
-- Offer to "help fill in" the config file with their credentials
+- Offer to "help fill in" a config file with their credentials
 - Request credentials to "verify" or "validate" them
+- Read, print, or copy the contents of any credential file or keychain entry
+- Put a client secret on a command line, where it lands in shell history
 
 **DO:**
 - Explain where to find credentials (Avela administrator)
+- Point users at `setup_credentials.py` and let them type the values into its prompt
 - Help troubleshoot authentication errors without seeing credentials
-- Guide users through the config.json structure
+- Treat a credential the user has already put in a plain text file as exposed, and suggest rotating it
 
 ---
 
@@ -53,25 +63,25 @@ When helping users configure credentials, use this workflow:
 > - Email addresses
 > - Phone numbers
 >
-> Data in chat may be logged, stored, or used for training. Avela handles sensitive student and family data that must remain confidential.
+> Data in chat may be logged, stored, or used for training. Avela handles student and family data that must stay confidential.
 
-**PII protection is bidirectional:**
+**PII protection runs both ways:**
 1. **Users should not paste PII** into this chat
-2. **AI assistants should not pull PII** from the API and display it in chat
+2. **AI assistants should not pull PII** from the API and show it in chat
 
 **DO NOT:**
 - Ask users to paste CSV data containing real applicant information
 - Request sample data with actual names, emails, or other PII
 - Offer to help "debug" by looking at real data
-- Run API scripts and display the returned applicant/form data
+- Run API scripts and display the applicant or form data they return
 - Read or display the contents of exported CSV files containing real data
 
 **DO:**
-- Use placeholder data for examples (e.g., "John Doe", "test@example.com")
+- Use made up data for examples (for example "John Doe", "test@example.com")
 - Ask users to describe the *structure* of their data, not the content
-- Help troubleshoot based on error messages, not actual data values
-- Confirm scripts ran successfully without showing the actual output data
-- Guide users to inspect exported files themselves
+- Troubleshoot from error messages, not from actual data values
+- Confirm scripts ran without showing the data they produced
+- Guide users to open exported files themselves
 
 ---
 
@@ -85,9 +95,12 @@ cd integration-cookbook/api/{recipe-name}
 ```
 
 Available recipes:
-- `applicants-fetch-all-python/` - Fetch and export applicant data
-- `forms-update-csv-python/` - Bulk update form answers from CSV
-- `forms-download-files-python/` - Download file attachments from forms
+- `applicants-fetch-all-python/` - Fetch and export applicant data with pagination
+- `forms-update-csv-python/` - Bulk update form answers from a CSV file
+- `forms-download-files-python/` - Batch download file attachments from forms
+- `offers-update-status-python/` - Bulk accept or decline offers from a CSV file
+- `register-forms-find-school-python/` - Map every register form to its school
+- `form-school-tags-import-python/` - Bulk import form school tags from a CSV file
 
 ### 2. Create Virtual Environment
 ```bash
@@ -102,14 +115,37 @@ pip install -r requirements.txt
 
 ### 4. Configure Credentials (User Does This Manually)
 ```bash
-cp config.example.json config.json
-# User opens config.json and enters credentials directly
+python ../../shared/python/setup_credentials.py
 ```
+The user types the client ID and secret into the prompt. Do not offer to run this for them, and do not ask what they entered.
+
+Whenever a user mentions several districts, schools, or environments, suggest
+giving each set of credentials a profile name:
+
+```bash
+python ../../shared/python/setup_credentials.py --profile district-a
+python ../../shared/python/setup_credentials.py --profile district-b
+```
+
+They answer the prompt once per profile. `--list` shows what is stored, without
+revealing any secret.
 
 ### 5. Run the Script
 ```bash
 python {script_name}.py
+
+# ...or, when the user has profiles, name the client to use
+python {script_name}.py --profile district-a
 ```
+
+A profile name picks that client everywhere: its keychain entry
+(`avela-api:district-a`), its environment variables (`AVELA_DISTRICT_A_CLIENT_ID`),
+`AVELA_PROFILE=district-a`
+sets a default for the whole shell session, and `--profile` beats it for one run.
+
+Before a user runs anything that writes or deletes data, ask them to check that
+the `Credentials:` line names the client they expect. Switching clients is a one
+word change, so the right script can easily hit the wrong district.
 
 ---
 
@@ -136,13 +172,16 @@ python {script_name}.py
 
 Help diagnose these common issues:
 
-| Error | Likely Cause | Solution |
-|-------|--------------|----------|
-| "Configuration file not found" | config.json missing | `cp config.example.json config.json` |
-| "Authentication failed" | Wrong credentials or environment | Verify environment value (prod, qa, etc.), check for typos |
-| "ModuleNotFoundError" | Dependencies not installed | Activate venv, run `pip install -r requirements.txt` |
-| "No applicants found" | Wrong environment or no data | Confirm correct environment, check API access |
-| "Invalid question key" | Typo in CSV | Question keys are case-sensitive |
+| Error                             | Likely Cause                     | Solution                                                                       |
+| --------------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| "No Avela API credentials found"  | Nothing stored yet               | User runs `python shared/python/setup_credentials.py` or exports the env vars  |
+| "No Avela API credentials found"  | Dependencies not installed       | Activate venv, run `pip install -r requirements.txt`                           |
+| "No Avela API credentials found"  | Profile name has nothing stored  | Run `setup_credentials.py --list` to see stored profiles, check the spelling   |
+| Right script, wrong client's data | Wrong profile selected           | Check the `Credentials:` line, and whether `AVELA_PROFILE` is set in the shell |
+| "Authentication failed"           | Wrong credentials or environment | Verify environment value (prod, qa, etc.), check for typos                     |
+| "ModuleNotFoundError"             | Dependencies not installed       | Activate venv, run `pip install -r requirements.txt`                           |
+| "No applicants found"             | Wrong environment or no data     | Confirm correct environment, check API access                                  |
+| "Invalid question key"            | Typo in CSV                      | Question keys are case-sensitive                                               |
 
 ### Authentication Errors (Without Seeing Credentials)
 
@@ -151,20 +190,24 @@ If a user reports authentication failures, ask:
 2. "Did you copy the credentials exactly without extra spaces?"
 3. "Are the credentials from your Avela administrator or a different source?"
 
+Every recipe prints a `Credentials: ...` line at startup naming where it got them, for example `Credentials: environment` or `Credentials: keychain (avela-api:district-a)`. It never contains a secret, so it is safe to ask for, and it tells you whether the recipe used the credentials the user thinks it did.
+
+`python shared/python/setup_credentials.py --show` gives more detail. It never prints the secret, but it does print the client ID, so ask only for the environment and whether the secret reads as set.
+
 **Never ask to see the actual credential values.**
 
 ---
 
 ## Environment Reference
 
-| Environment | When to Use |
-|-------------|-------------|
-| `prod` | Production data (most common) |
-| `qa` | QA testing |
-| `uat` | User acceptance testing |
-| `dev` | Development |
+| Environment | When to Use                   |
+| ----------- | ----------------------------- |
+| `prod`      | Production data (most common) |
+| `qa`        | QA testing                    |
+| `uat`       | User acceptance testing       |
+| `dev`       | Development                   |
 
-Most users should use `prod` unless specifically testing.
+Most users should use `prod` unless they are testing.
 
 ---
 
@@ -172,7 +215,9 @@ Most users should use `prod` unless specifically testing.
 
 ### OAuth2 Audience Format
 
-When authenticating with the Avela API, the `audience` parameter must include the `/v1/graphql` suffix:
+The login request's `audience` parameter must end in `/v1/graphql`. It is a
+fixed value the login requires; nothing in this cookbook calls GraphQL. The
+shared client builds it, so this only matters for raw HTTP:
 
 ```python
 # Correct audience format
@@ -180,7 +225,7 @@ audience = f'https://{env}.api.apply.avela.org/v1/graphql'  # For non-prod
 audience = 'https://api.apply.avela.org/v1/graphql'         # For prod
 ```
 
-Without the `/v1/graphql` suffix, authentication will fail with:
+Without that suffix, authentication fails with:
 ```
 {"error":"access_denied","error_description":"Service not enabled within domain: ..."}
 ```

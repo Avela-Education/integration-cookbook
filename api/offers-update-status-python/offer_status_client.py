@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Avela Offer Status Update Script
+Accept or decline offers in bulk from a CSV file.
 
-This script demonstrates how to:
-1. Authenticate with the Avela API using OAuth2 client credentials
-2. Read offer updates from a CSV file
-3. Update offer statuses (accept/decline) via the Customer API v2
+The script:
+1. Logs in with OAuth2 client credentials
+2. Reads one offer ID and one action per row from a CSV file
+3. Sends the accepts and the declines to the Customer API v2
 
 Author: Avela Education
 License: MIT
@@ -13,61 +13,68 @@ License: MIT
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
 import requests
 
-VALID_ENVIRONMENTS = {'dev', 'qa', 'uat', 'prod'}
+try:
+    from avela_client import (
+        DEFAULT_ENVIRONMENT,
+        environment_urls,
+        load_settings,
+        resolve_credentials,
+    )
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
 
 # =============================================================================
 # CONFIGURATION LOADING
 # =============================================================================
 
 
-def load_config(config_path: str = 'config.json') -> dict:
+def load_config(profile: str | None = None, required: bool = True) -> dict:
     """
-    Load configuration from a JSON file.
+    Find credentials, and read any other settings from the config file.
 
-    The config file should contain:
-    - client_id: Your OAuth2 client ID (provided by Avela)
-    - client_secret: Your OAuth2 client secret (provided by Avela)
-    - environment: Which Avela environment to connect to (prod, qa, uat, dev)
+    Credentials come from environment variables or the OS keychain. See
+    resolve_credentials() in the shared avela_client module.
 
     Args:
-        config_path: Path to the configuration JSON file
+        profile: Named credential set to use, when you have several clients
 
     Returns:
-        Dictionary containing configuration values
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
+        Settings dictionary, with the credentials added
     """
-    config_file = Path(config_path)
-
-    if not config_file.exists():
-        print(f"Error: Configuration file '{config_path}' not found!")
-        print("Please create it based on 'config.example.json'")
+    # The settings and the credentials always come from the same client
+    try:
+        config = load_settings(profile)
+    except ValueError as e:
+        # Show the plain message instead of a Python error
+        print(e)
         sys.exit(1)
 
-    with open(config_file, encoding='utf-8') as f:
-        config = json.load(f)
-
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing_fields = [field for field in required_fields if field not in config]
-
-    if missing_fields:
-        print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
+    try:
+        credentials = resolve_credentials(profile=profile)
+    except ValueError as e:
+        if not required:
+            # A dry run calls no API, so it can go on without credentials
+            config['client_id'] = ''
+            config['client_secret'] = ''
+            config['environment'] = DEFAULT_ENVIRONMENT
+            config['credential_source'] = 'none (dry run)'
+            return config
+        print(e)
         sys.exit(1)
 
-    environment = config['environment']
-    if environment not in VALID_ENVIRONMENTS:
-        print(f'Error: Invalid environment "{environment}"')
-        print(f'Valid environments: {", ".join(sorted(VALID_ENVIRONMENTS))}')
-        sys.exit(1)
-
+    config['client_id'] = credentials.client_id
+    config['client_secret'] = credentials.client_secret
+    config['environment'] = credentials.environment
+    config['credential_source'] = credentials.source
     return config
 
 
@@ -78,30 +85,26 @@ def load_config(config_path: str = 'config.json') -> dict:
 
 def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
     """
-    Authenticate with Avela API and get an access token.
+    Log in to the Avela API and get an access token.
 
-    This function uses the OAuth2 "client credentials" flow:
-    1. Send client_id and client_secret to the authentication endpoint
-    2. Receive an access token that's valid for 24 hours
-    3. Use this token in subsequent API requests
+    This is the OAuth2 client credentials flow. You send the client ID and
+    secret to the login endpoint, get back a token that lasts 24 hours, and
+    send that token with every later request.
 
     Args:
         client_id: Your OAuth2 client ID
         client_secret: Your OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
 
     Returns:
         Access token string (JWT format)
 
     Raises:
-        requests.RequestException: If authentication fails
+        requests.RequestException: If the login fails
     """
-    if environment == 'prod':
-        auth_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    else:
-        auth_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
+    # environment_urls knows that staging authenticates against a different
+    # host, which is easy to get wrong when building these by hand
+    auth_url, _, audience = environment_urls(environment)
 
     print(f'Authenticating with Avela API ({environment})...')
 
@@ -122,17 +125,18 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
 
         access_token = token_data.get('access_token')
         if not access_token:
-            print('Error: No access token in response!')
-            print(f'Response: {token_data}')
+            print('Error: No access token in the response.')
+            # Name the fields only. The body could hold another token.
+            print(f'Response fields: {", ".join(sorted(token_data))}')
             sys.exit(1)
 
         expires_in = token_data.get('expires_in', 86400)
-        print(f'Authentication successful! Token expires in {expires_in} seconds.')
+        print(f'Authentication successful. Token expires in {expires_in} seconds.')
 
         return access_token
 
     except requests.exceptions.RequestException as e:
-        print('Error: Authentication failed!')
+        print('Error: Authentication failed.')
         print(f'Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'Response: {e.response.text}')
@@ -146,35 +150,34 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
 
 def get_customer_api_base_url(environment: str) -> str:
     """
-    Get the Customer API v2 base URL for the given environment.
+    Build the Customer API v2 base URL for an environment.
 
     Args:
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
 
     Returns:
         Base URL for the Customer API v2
     """
-    if environment == 'prod':
-        return 'https://execute-api.apply.avela.org/api/rest/v2/'
-    return f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
+    _, base_url, _ = environment_urls(environment)
+    return base_url + '/'
 
 
 def update_offer_status(
     access_token: str, environment: str, offer_ids: list[str], status: str
 ) -> bool:
     """
-    Update status for multiple offers.
+    Set the same status on a batch of offers.
 
     Uses the PUT /forms/offers/status endpoint.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
         offer_ids: List of offer UUIDs to update
         status: "Accepted" or "Declined"
 
     Returns:
-        True if successful, False otherwise
+        True if the update worked, False if it did not
     """
     base_url = get_customer_api_base_url(environment)
     url = f'{base_url}forms/offers/status'
@@ -197,7 +200,7 @@ def update_offer_status(
         return result.get('data', {}).get('success', False)
 
     except requests.exceptions.RequestException as e:
-        print(f'  Failed to update offers to {status}!')
+        print(f'  Failed to update the offers to {status}.')
         print(f'  Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'  Response: {e.response.text}')
@@ -211,12 +214,15 @@ def update_offer_status(
 
 def read_csv_updates(csv_path: str) -> list[dict]:
     """
-    Read offer update data from a CSV file.
+    Read the offer updates out of a CSV file.
 
-    Expected CSV format:
+    The file looks like this:
     offer_id,action
     uuid-1,accept
     uuid-2,decline
+
+    Rows with no offer ID, or an action other than accept or decline, are
+    skipped with a warning.
 
     Args:
         csv_path: Path to the CSV file
@@ -225,13 +231,13 @@ def read_csv_updates(csv_path: str) -> list[dict]:
         List of dictionaries with offer_id and action
 
     Raises:
-        FileNotFoundError: If CSV file doesn't exist
-        ValueError: If CSV format is invalid
+        FileNotFoundError: If the CSV file is missing
+        ValueError: If the CSV is missing a required column
     """
     csv_file = Path(csv_path)
 
     if not csv_file.exists():
-        print(f"Error: CSV file '{csv_path}' not found!")
+        print(f"Error: CSV file '{csv_path}' not found.")
         sys.exit(1)
 
     updates = []
@@ -271,11 +277,11 @@ def read_csv_updates(csv_path: str) -> list[dict]:
         return updates
 
     except csv.Error as e:
-        print('Error: Failed to parse CSV file!')
+        print('Error: Could not read the CSV file.')
         print(f'Details: {e}')
         sys.exit(1)
     except ValueError as e:
-        print('Error: Invalid CSV format!')
+        print('Error: The CSV file is missing something.')
         print(f'Details: {e}')
         sys.exit(1)
 
@@ -284,18 +290,16 @@ def process_csv_updates(
     access_token: str, environment: str, csv_path: str, dry_run: bool = False
 ) -> tuple[int, int]:
     """
-    Process all offer updates from a CSV file.
+    Apply every offer update in a CSV file.
 
-    This function:
-    1. Reads the CSV file
-    2. Groups updates by action (accept/decline)
-    3. Calls the appropriate API endpoint for each group
+    Reads the file, splits the rows into accepts and declines, and sends each
+    group in one request.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
         csv_path: Path to the CSV file
-        dry_run: If True, print what would be sent without making API calls
+        dry_run: If True, print what would be sent and call nothing
 
     Returns:
         Tuple of (successful_updates, failed_updates)
@@ -306,7 +310,7 @@ def process_csv_updates(
         print('No updates to process.')
         return (0, 0)
 
-    # Group by action
+    # One request per action, so split the rows first
     accept_ids = [u['offer_id'] for u in updates if u['action'] == 'accept']
     decline_ids = [u['offer_id'] for u in updates if u['action'] == 'decline']
 
@@ -318,7 +322,6 @@ def process_csv_updates(
     successful = 0
     failed = 0
 
-    # Process accepts
     if accept_ids:
         print(f'Accepting {len(accept_ids)} offer(s)...')
         for offer_id in accept_ids:
@@ -335,7 +338,6 @@ def process_csv_updates(
                 failed += len(accept_ids)
         print()
 
-    # Process declines
     if decline_ids:
         print(f'Declining {len(decline_ids)} offer(s)...')
         for offer_id in decline_ids:
@@ -361,15 +363,7 @@ def process_csv_updates(
 
 
 def main():
-    """
-    Main execution function.
-
-    This orchestrates the entire workflow:
-    1. Load configuration
-    2. Authenticate with the API
-    3. Process CSV updates
-    4. Report results
-    """
+    """Log in, apply every offer update in the CSV file, then report results."""
     parser = argparse.ArgumentParser(
         description='Update offer statuses (accept/decline) in bulk from a CSV file'
     )
@@ -383,6 +377,9 @@ def main():
         default='sample_offers.csv',
         help='Path to CSV file (default: sample_offers.csv)',
     )
+    parser.add_argument(
+        '--profile', default=None, help='Named credential set to use (see README)'
+    )
     args = parser.parse_args()
 
     print('=' * 80)
@@ -392,14 +389,16 @@ def main():
     print('=' * 80)
     print()
 
-    # Step 1: Load configuration
-    config = load_config('config.json')
+    # Step 1: Find credentials and any extra settings
+    config = load_config(profile=args.profile, required=not args.dry_run)
 
     client_id = config['client_id']
     client_secret = config['client_secret']
     environment = config['environment']
 
-    # Step 2: Authenticate
+    print(f'Credentials: {config["credential_source"]}')
+
+    # Step 2: Log in, unless this is a dry run
     if args.dry_run:
         print(f'[DRY RUN] Skipping authentication (environment: {environment})')
         access_token = 'dry-run-token'
@@ -407,12 +406,12 @@ def main():
         access_token = get_access_token(client_id, client_secret, environment)
     print()
 
-    # Step 3: Process updates
+    # Step 3: Apply the updates
     successful, failed = process_csv_updates(
         access_token, environment, args.csv, dry_run=args.dry_run
     )
 
-    # Step 4: Report results
+    # Step 4: Report what happened
     print('=' * 80)
     print('RESULTS')
     print('=' * 80)
@@ -427,15 +426,16 @@ def main():
 
 if __name__ == '__main__':
     """
-    Entry point when script is run directly.
+    Run the recipe.
 
     Usage:
         python offer_status_client.py                    # Run with sample_offers.csv
         python offer_status_client.py --dry-run          # Test without making API calls
         python offer_status_client.py --csv myfile.csv   # Use a different CSV file
+        python offer_status_client.py --profile district-a  # Use a named credential set
 
-    Make sure you have:
-    1. Created a 'config.json' file with your credentials
-    2. Created a CSV file with your updates (or use sample_offers.csv)
+    Before you run it:
+    1. Store your credentials (the README covers the keychain and environment variables)
+    2. Write a CSV file of updates, or use sample_offers.csv
     """
     main()

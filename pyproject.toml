@@ -21,7 +21,7 @@ dev = [
 [tool.ruff]
 line-length = 90
 indent-width = 4
-target-version = "py38"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]
@@ -32,6 +32,7 @@ unfixable = []
 
 exclude = [
     ".git",
+    "local",
     ".ruff_cache",
     ".venv",
     "__pycache__",

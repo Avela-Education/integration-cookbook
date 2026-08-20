@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Avela Form Service API Integration Script
+Update form answers in bulk from a CSV file.
 
-This script demonstrates how to:
-1. Authenticate with the Avela API using OAuth2 client credentials
-2. Look up form templates to get question UUIDs from question keys
-3. Read form updates from a CSV file
-4. Update form answers via the Form Service API
+The script:
+1. Logs in with OAuth2 client credentials
+2. Reads form IDs, question keys, and answers from a CSV file
+3. Sends each form's answers to the Customer API in one request
+
+Answers go in by question key, so you never have to look up question UUIDs.
 
 Author: Avela Education
 License: MIT
@@ -14,7 +15,6 @@ License: MIT
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
@@ -22,48 +22,63 @@ from pathlib import Path
 # Install it with: pip install requests
 import requests
 
+try:
+    from avela_client import (
+        DEFAULT_ENVIRONMENT,
+        environment_urls,
+        load_settings,
+        resolve_credentials,
+    )
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
+
 # =============================================================================
 # CONFIGURATION LOADING
 # =============================================================================
 
 
-def load_config(config_path: str = 'config.json') -> dict:
+def load_config(profile: str | None = None, required: bool = True) -> dict:
     """
-    Load configuration from a JSON file.
+    Find credentials, and read any other settings from the config file.
 
-    The config file should contain:
-    - client_id: Your OAuth2 client ID (provided by Avela)
-    - client_secret: Your OAuth2 client secret (provided by Avela)
-    - environment: Which Avela environment to connect to (prod, qa, uat, dev)
+    Credentials come from environment variables or the OS keychain. See
+    resolve_credentials() in the shared avela_client module.
 
     Args:
-        config_path: Path to the configuration JSON file
+        profile: Named credential set to use, when you have several clients
 
     Returns:
-        Dictionary containing configuration values
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
+        Settings dictionary, with the credentials added
     """
-    config_file = Path(config_path)
-
-    if not config_file.exists():
-        print(f"Error: Configuration file '{config_path}' not found!")
-        print("Please create it based on 'config.example.json'")
+    # The settings and the credentials always come from the same client
+    try:
+        config = load_settings(profile)
+    except ValueError as e:
+        # Show the plain message instead of a Python error
+        print(e)
         sys.exit(1)
 
-    with open(config_file, encoding='utf-8') as f:
-        config = json.load(f)
-
-    # Validate required fields
-    required_fields = ['client_id', 'client_secret', 'environment']
-    missing_fields = [field for field in required_fields if field not in config]
-
-    if missing_fields:
-        print(f'Error: Missing required fields in config: {", ".join(missing_fields)}')
+    try:
+        credentials = resolve_credentials(profile=profile)
+    except ValueError as e:
+        if not required:
+            # A dry run calls no API, so it can go on without credentials
+            config['client_id'] = ''
+            config['client_secret'] = ''
+            config['environment'] = DEFAULT_ENVIRONMENT
+            config['credential_source'] = 'none (dry run)'
+            return config
+        print(e)
         sys.exit(1)
 
+    config['client_id'] = credentials.client_id
+    config['client_secret'] = credentials.client_secret
+    config['environment'] = credentials.environment
+    config['credential_source'] = credentials.source
     return config
 
 
@@ -74,38 +89,32 @@ def load_config(config_path: str = 'config.json') -> dict:
 
 def get_access_token(client_id: str, client_secret: str, environment: str) -> str:
     """
-    Authenticate with Avela API and get an access token.
+    Log in to the Avela API and get an access token.
 
-    This function uses the OAuth2 "client credentials" flow:
-    1. Send client_id and client_secret to the authentication endpoint
-    2. Receive an access token that's valid for 24 hours
-    3. Use this token in subsequent API requests
+    This is the OAuth2 client credentials flow. You send the client ID and
+    secret to the login endpoint, get back a token that lasts 24 hours, and
+    send that token with every later request.
 
     Args:
         client_id: Your OAuth2 client ID
         client_secret: Your OAuth2 client secret
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
 
     Returns:
         Access token string (JWT format)
 
     Raises:
-        requests.RequestException: If authentication fails
+        requests.RequestException: If the login fails
     """
-    # Build the authentication URL based on environment
-    if environment == 'prod':
-        auth_url = 'https://auth.avela.org/oauth/token'
-        audience = 'https://api.apply.avela.org/v1/graphql'
-    else:
-        auth_url = f'https://{environment}.auth.avela.org/oauth/token'
-        audience = f'https://{environment}.api.apply.avela.org/v1/graphql'
+    # environment_urls knows that staging authenticates against a different
+    # host, which is easy to get wrong when building these by hand
+    auth_url, _, audience = environment_urls(environment)
 
     print(f'Authenticating with Avela API ({environment})...')
 
-    # Prepare the authentication request
+    # OAuth2 token requests are form encoded, not JSON
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
 
-    # The data payload for OAuth2 client credentials flow
     data = {
         'grant_type': 'client_credentials',
         'client_id': client_id,
@@ -114,27 +123,25 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
     }
 
     try:
-        # Make the POST request to get the token
         response = requests.post(auth_url, data=data, headers=headers, timeout=30)
         response.raise_for_status()
 
-        # Parse the JSON response
         token_data = response.json()
 
-        # Extract the access token from the response
         access_token = token_data.get('access_token')
         if not access_token:
-            print('Error: No access token in response!')
-            print(f'Response: {token_data}')
+            print('Error: No access token in the response.')
+            # Name the fields only. The body could hold another token.
+            print(f'Response fields: {", ".join(sorted(token_data))}')
             sys.exit(1)
 
         expires_in = token_data.get('expires_in', 86400)  # Default 24 hours
-        print(f'✓ Authentication successful! Token expires in {expires_in} seconds.')
+        print(f'✓ Authentication successful. Token expires in {expires_in} seconds.')
 
         return access_token
 
     except requests.exceptions.RequestException as e:
-        print('Error: Authentication failed!')
+        print('Error: Authentication failed.')
         print(f'Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'Response: {e.response.text}')
@@ -148,37 +155,38 @@ def get_access_token(client_id: str, client_secret: str, environment: str) -> st
 
 def get_customer_api_base_url(environment: str) -> str:
     """
-    Get the Customer API base URL for the given environment.
+    Build the Customer API base URL for an environment.
 
     Args:
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
 
     Returns:
         Base URL for the Customer API
     """
-    return f'https://{environment}.execute-api.apply.avela.org/api/rest/v2/'
+    _, base_url, _ = environment_urls(environment)
+    return base_url + '/'
 
 
 def update_form_questions(
     access_token: str, environment: str, form_id: str, questions: list[dict]
 ) -> bool:
     """
-    Update multiple questions/answers in a form using the Customer API.
+    Update several answers on one form, in a single request.
 
-    This uses the POST /forms/{id}/questions endpoint which allows updating
-    answers by question key without needing to fetch the form template.
+    Uses POST /forms/{id}/questions, which takes question keys. That saves you
+    from fetching the form template to look up question UUIDs.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
-        form_id: UUID of the form instance
-        questions: List of question dictionaries with keys:
-            - key: Question key (e.g., "internal1")
-            - type: Question type (e.g., "FreeText", "Email", etc.)
+        environment: Which environment to use (prod, qa, uat, dev)
+        form_id: UUID of the form
+        questions: List of question dictionaries, each holding:
+            - key: Question key (for example "internal1")
+            - type: Question type (for example "FreeText" or "Email")
             - answer: Answer object matching the question type
 
     Returns:
-        True if successful, False otherwise
+        True if the update worked, False if it did not
     """
     base_url = get_customer_api_base_url(environment)
     questions_url = f'{base_url}forms/{form_id}/questions'
@@ -197,7 +205,7 @@ def update_form_questions(
         return True
 
     except requests.exceptions.RequestException as e:
-        print('  ✗ Failed to update questions!')
+        print('  ✗ Failed to update the questions.')
         print(f'    Details: {e}')
         if hasattr(e, 'response') and e.response is not None:
             print(f'    Response: {e.response.text}')
@@ -206,18 +214,18 @@ def update_form_questions(
 
 def build_answer_object(question_type: str, answer_value: str) -> dict:
     """
-    Build the answer object based on question type.
+    Build the answer object for one question.
 
-    Different question types require different answer structures.
+    Each question type wants its answer shaped differently, so this turns the
+    plain text from the CSV into the shape that type expects.
 
     Args:
-        question_type: The type of question (FreeText, Email, PhoneNumber, etc.)
-        answer_value: The answer value as a string
+        question_type: Question type (FreeText, Email, PhoneNumber, and so on)
+        answer_value: The answer, as text from the CSV
 
     Returns:
         Answer object formatted for the Customer API
     """
-    # Map question types to their answer structure
     answer_type_map = {
         'FreeText': 'free_text',
         'Email': 'email',
@@ -231,32 +239,31 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
 
     answer_key = answer_type_map.get(question_type, 'free_text')
 
-    # For most types, the answer is simply {type: {value: answer_value}}
+    # Most types take {type: {value: answer_value}}
     if question_type in ['FreeText', 'Email', 'PhoneNumber', 'Date', 'SingleSelect']:
         return {answer_key: {'value': answer_value}}
 
-    # For Number, convert to numeric type
+    # Number wants a real number, not text
     if question_type == 'Number':
         try:
             return {answer_key: {'value': float(answer_value)}}
         except ValueError:
             return {answer_key: {'value': answer_value}}
 
-    # For Grades, answer is {grade: {value: "..."}}
+    # Grades answers are {grade: {value: "..."}}
     if question_type == 'Grades':
         return {'grade': {'value': answer_value}}
 
-    # For MultiSelect, answer is just {'options': [...]} (not nested under multi_select)
-    # Options can match by id, label, or value - only include fields that have real values
+    # MultiSelect answers are {'options': [...]}, not nested under multi_select.
+    # The API matches an option by id, label, or value, so 'value' is enough here,
+    # the same way it is for SingleSelect.
     if question_type == 'MultiSelect':
         if not answer_value:
             return {'options': []}
-        # Split comma-separated values and create option objects
-        # Use 'value' field to match (same as SingleSelect) - API matches by id, label, or value
         option_objects = [{'value': val.strip()} for val in answer_value.split(',')]
         return {'options': option_objects}
 
-    # For Address, parse pipe-delimited format: street1|street2|city|state|zip
+    # Address answers arrive as street1|street2|city|state|zip
     if question_type == 'Address':
         parts = answer_value.split('|')
         address_obj = {}
@@ -272,7 +279,7 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
             address_obj['zip_code'] = parts[4].strip()
         return {answer_key: address_obj}
 
-    # Default fallback to free_text
+    # Anything else is treated as free text
     return {'free_text': {'value': answer_value}}
 
 
@@ -283,14 +290,15 @@ def build_answer_object(question_type: str, answer_value: str) -> dict:
 
 def read_csv_updates(csv_path: str) -> list[dict]:
     """
-    Read form update data from a CSV file.
+    Read the updates out of a CSV file.
 
-    Expected CSV format:
+    The file looks like this:
     form_id,question_key,question_type,answer_value
     uuid-1,key1,FreeText,value1
     uuid-2,key2,Email,value2
 
-    Note: question_type column is optional and defaults to FreeText
+    The question_type column is optional. Leave it out and every answer is
+    treated as FreeText.
 
     Args:
         csv_path: Path to the CSV file
@@ -299,13 +307,13 @@ def read_csv_updates(csv_path: str) -> list[dict]:
         List of dictionaries with form_id, question_key, question_type, and answer_value
 
     Raises:
-        FileNotFoundError: If CSV file doesn't exist
-        ValueError: If CSV format is invalid
+        FileNotFoundError: If the CSV file is missing
+        ValueError: If the CSV is missing a required column
     """
     csv_file = Path(csv_path)
 
     if not csv_file.exists():
-        print(f"Error: CSV file '{csv_path}' not found!")
+        print(f"Error: CSV file '{csv_path}' not found.")
         sys.exit(1)
 
     updates = []
@@ -314,21 +322,17 @@ def read_csv_updates(csv_path: str) -> list[dict]:
         with open(csv_file, encoding='utf-8') as f:
             reader = csv.DictReader(f)
 
-            # Validate required columns
             required_columns = {'form_id', 'question_key', 'answer_value'}
             if not required_columns.issubset(reader.fieldnames or []):
                 missing = required_columns - set(reader.fieldnames or [])
                 raise ValueError(f'CSV missing required columns: {missing}')
 
-            # Check if question_type column exists
             has_type_column = 'question_type' in (reader.fieldnames or [])
 
-            for row_num, row in enumerate(reader, start=2):  # Start at 2 (after header)
-                # Skip empty rows
+            for row_num, row in enumerate(reader, start=2):  # Row 2 is the first data row
                 if not any(row.values()):
                     continue
 
-                # Validate row data
                 if not row.get('form_id'):
                     print(f'Warning: Row {row_num} missing form_id, skipping')
                     continue
@@ -337,7 +341,7 @@ def read_csv_updates(csv_path: str) -> list[dict]:
                     print(f'Warning: Row {row_num} missing question_key, skipping')
                     continue
 
-                # Get question type or default to FreeText
+                # Use the question type from the file, or FreeText if there is none
                 question_type = (
                     row.get('question_type', 'FreeText').strip()
                     if has_type_column
@@ -359,11 +363,11 @@ def read_csv_updates(csv_path: str) -> list[dict]:
         return updates
 
     except csv.Error as e:
-        print('Error: Failed to parse CSV file!')
+        print('Error: Could not read the CSV file.')
         print(f'Details: {e}')
         sys.exit(1)
     except ValueError as e:
-        print('Error: Invalid CSV format!')
+        print('Error: The CSV file is missing something.')
         print(f'Details: {e}')
         sys.exit(1)
 
@@ -372,31 +376,27 @@ def process_csv_updates(
     access_token: str, environment: str, csv_path: str, dry_run: bool = False
 ) -> tuple[int, int]:
     """
-    Process all form updates from a CSV file.
+    Apply every update in a CSV file.
 
-    This is the main processing function that:
-    1. Reads the CSV file
-    2. Groups updates by form_id
-    3. Builds question objects with answer structures
-    4. Updates all questions for each form in a single API call
+    Reads the file, groups the rows by form, builds each answer, and sends one
+    request per form.
 
     Args:
         access_token: Bearer token from authentication
-        environment: Target environment (prod, qa, uat, dev)
+        environment: Which environment to use (prod, qa, uat, dev)
         csv_path: Path to the CSV file
-        dry_run: If True, print what would be sent without making API calls
+        dry_run: If True, print what would be sent and call nothing
 
     Returns:
         Tuple of (successful_updates, failed_updates)
     """
-    # Read updates from CSV
     updates = read_csv_updates(csv_path)
 
     if not updates:
         print('No updates to process.')
         return (0, 0)
 
-    # Group updates by form_id to batch updates
+    # One request per form, so group the rows by form_id first
     updates_by_form = {}
     for update in updates:
         form_id = update['form_id']
@@ -409,19 +409,16 @@ def process_csv_updates(
     successful = 0
     failed = 0
 
-    # Process each form's updates
     for form_id, form_updates in updates_by_form.items():
         print(f'Form: {form_id}')
         print(f'  {len(form_updates)} update(s) to process')
 
-        # Build questions array for API request
         questions = []
         for update in form_updates:
             question_key = update['question_key']
             question_type = update['question_type']
             answer_value = update['answer_value']
 
-            # Build the answer object based on question type
             answer_obj = build_answer_object(question_type, answer_value)
 
             questions.append(
@@ -436,7 +433,6 @@ def process_csv_updates(
             print(f'  [DRY RUN] Would submit {len(questions)} question(s) to API')
             successful += len(form_updates)
         else:
-            # Update all questions in a single API call
             print(f'  Submitting {len(questions)} question(s) to API...', end=' ')
             success = update_form_questions(access_token, environment, form_id, questions)
 
@@ -457,16 +453,7 @@ def process_csv_updates(
 
 
 def main():
-    """
-    Main execution function.
-
-    This orchestrates the entire workflow:
-    1. Load configuration
-    2. Authenticate with the API
-    3. Process CSV updates
-    4. Report results
-    """
-    # Parse command line arguments
+    """Log in, apply every update in the CSV file, then report what happened."""
     parser = argparse.ArgumentParser(
         description='Update form answers in bulk from a CSV file'
     )
@@ -480,6 +467,9 @@ def main():
         default='sample_updates.csv',
         help='Path to CSV file (default: sample_updates.csv)',
     )
+    parser.add_argument(
+        '--profile', default=None, help='Named credential set to use (see README)'
+    )
     args = parser.parse_args()
 
     print('=' * 80)
@@ -489,14 +479,16 @@ def main():
     print('=' * 80)
     print()
 
-    # Step 1: Load configuration from config.json
-    config = load_config('config.json')
+    # Step 1: Find credentials and any extra settings
+    config = load_config(profile=args.profile, required=not args.dry_run)
 
     client_id = config['client_id']
     client_secret = config['client_secret']
     environment = config['environment']
 
-    # Step 2: Authenticate and get access token (skip in dry-run mode)
+    print(f'Credentials: {config["credential_source"]}')
+
+    # Step 2: Log in, unless this is a dry run
     if args.dry_run:
         print(f'[DRY RUN] Skipping authentication (environment: {environment})')
         access_token = 'dry-run-token'
@@ -504,12 +496,12 @@ def main():
         access_token = get_access_token(client_id, client_secret, environment)
     print()
 
-    # Step 3: Process updates from CSV
+    # Step 3: Apply the updates
     successful, failed = process_csv_updates(
         access_token, environment, args.csv, dry_run=args.dry_run
     )
 
-    # Step 4: Report results
+    # Step 4: Report what happened
     print('=' * 80)
     print('RESULTS')
     print('=' * 80)
@@ -524,16 +516,17 @@ def main():
 
 if __name__ == '__main__':
     """
-    Entry point when script is run directly.
+    Run the recipe.
 
     Usage:
         python form_update_client.py                    # Run with sample_updates.csv
         python form_update_client.py --dry-run          # Test without making API calls
         python form_update_client.py --csv myfile.csv   # Use a different CSV file
+        python form_update_client.py --profile district-a  # Use a named credential set
         python form_update_client.py --dry-run --csv /path/to/test.csv
 
-    Make sure you have:
-    1. Created a 'config.json' file with your credentials
-    2. Created a CSV file with your updates (or use sample_updates.csv)
+    Before you run it:
+    1. Store your credentials (the README covers the keychain and environment variables)
+    2. Write a CSV file of updates, or use sample_updates.csv
     """
     main()

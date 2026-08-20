@@ -1,0 +1,16 @@
+# Avela API Integration - Form Files Download (advanced)
+#
+# Run this from THIS directory, because the script reads config.json
+# from the directory you run in:
+#   cd api/forms-download-files-python/advanced
+#   pip install -r requirements.txt
+
+# HTTP library for making API requests and downloading files
+requests>=2.31.0
+
+# Shared Avela client (credential resolution, rate limiting, retries)
+-e ../../../shared/python
+
+# Stores your credentials in the OS keychain, encrypted at rest
+keyring>=24.0.0
+

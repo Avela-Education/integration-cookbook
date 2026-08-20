@@ -13,3 +13,7 @@ requests>=2.31.0
 
 # Shared Avela client module (includes backoff for retries)
 -e ../../shared/python
+
+# Stores your credentials in the OS keychain, encrypted at rest
+keyring>=24.0.0
+

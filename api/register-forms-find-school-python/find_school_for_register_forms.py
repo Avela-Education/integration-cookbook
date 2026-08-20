@@ -2,8 +2,8 @@
 """
 Find the School for Every Register Form
 
-Demonstrates the reliable way to identify which school a registration form
-belongs to, even when the accepted offer has been revoked or deleted.
+Work out which school each registration form belongs to, even when the offer
+the family accepted was later revoked or deleted.
 
 The approach:
     1. Fetch all register forms for an enrollment period
@@ -12,26 +12,29 @@ The approach:
     4. Export a CSV mapping every register form to its school
 
 Why previous_form_id instead of previous_offer_id?
-    previous_form_id always points to the apply form, regardless of offer
-    state. previous_offer_id can become stale if an offer is revoked or
-    deleted. The school choices on the apply form are the authoritative
-    source for which schools the applicant applied to.
+    previous_form_id always points to the apply form, whatever happened to the
+    offer. previous_offer_id can go stale when an offer is revoked or deleted.
+    The school choices on the apply form are the record of where the applicant
+    actually applied.
 
 Author: Avela Education
 License: MIT
 """
 
+import argparse
 import csv
-import json
 import sys
 from datetime import datetime
-from pathlib import Path
 
-sys.path.insert(
-    0, str(Path(__file__).resolve().parent.parent.parent / 'shared' / 'python')
-)
+try:
+    from avela_client import create_client, load_settings
+except ImportError as exc:
+    print('Error: the shared Avela client could not be imported.')
+    print(f'Details: {exc}')
+    print("Install this recipe's dependencies and try again:")
+    print('    pip install -r requirements.txt')
+    sys.exit(1)
 
-from avela_client import create_client_from_config
 
 # =============================================================================
 # FORM FETCHING
@@ -44,15 +47,15 @@ def fetch_all_forms(
     form_template_keys: list[str] | None = None,
 ) -> list[dict]:
     """
-    Fetch forms for an enrollment period, handling pagination.
+    Fetch every form in an enrollment period, one page at a time.
 
-    If form_template_keys are provided, fetches each template separately
-    (much faster than fetching all forms and filtering later).
+    Naming form_template_keys asks the API for each template on its own, which
+    is much faster than fetching every form and throwing most of them away.
 
     Args:
-        client: Authenticated AvelaClient
+        client: Logged in AvelaClient
         enrollment_period_id: UUID of the enrollment period
-        form_template_keys: Optional list of template keys to filter by
+        form_template_keys: Fetch only these template keys, if given
 
     Returns:
         List of form dicts
@@ -100,14 +103,14 @@ def fetch_all_forms(
 
 def fetch_form_detail(client, form_id: str) -> dict | None:
     """
-    Fetch a single form's detail (includes previous_form_id, previous_offer_id).
+    Fetch one form in full, including previous_form_id and previous_offer_id.
 
     Args:
-        client: Authenticated AvelaClient
+        client: Logged in AvelaClient
         form_id: UUID of the form
 
     Returns:
-        Form detail dict, or None if not found
+        Form detail dict, or None if there is no such form
     """
     response = client.get(f'/forms/{form_id}')
 
@@ -120,17 +123,17 @@ def fetch_form_detail(client, form_id: str) -> dict | None:
 
 def fetch_school_choices(client, form_id: str) -> list[dict]:
     """
-    Fetch school choices (with offers) for a form.
+    Fetch a form's school choices, and the offers on them.
 
-    This is the key call: it returns the schools on the apply form
-    regardless of whether offers are accepted, declined, or revoked.
+    This is the call that matters. It returns the schools on the apply form
+    whether the offers were accepted, declined, or revoked.
 
     Args:
-        client: Authenticated AvelaClient
-        form_id: UUID of the form (typically the apply/enrollment form)
+        client: Logged in AvelaClient
+        form_id: UUID of the form, usually the apply form
 
     Returns:
-        List of school choice dicts, each containing school info and offers
+        List of school choice dicts, each holding a school and its offers
     """
     response = client.get(f'/forms/{form_id}/school_choices')
 
@@ -152,21 +155,22 @@ def find_school_for_register_form(
     apply_form_cache: dict,
 ) -> dict:
     """
-    Determine the school for a single register form.
+    Work out the school for one register form.
 
-    Strategy:
-        1. Get the register form's previous_form_id (link to apply form)
-        2. Fetch school_choices from the apply form
-        3. Identify the school — if there's an accepted offer, that's the
-           match. Otherwise, return all schools on the apply form.
+    Steps:
+        1. Read the register form's previous_form_id, which names the apply form
+        2. Fetch school_choices from that apply form
+        3. Pick the school. An accepted offer settles it. Without one, the row
+           still lists every school on the apply form.
 
     Args:
-        client: Authenticated AvelaClient
+        client: Logged in AvelaClient
         register_form: Form detail dict for the register form
-        apply_form_cache: Dict of apply_form_id -> school_choices (for reuse)
+        apply_form_cache: Dict of apply_form_id to school_choices, so a form
+            shared by several register forms is only fetched once
 
     Returns:
-        Dict with matching info:
+        Dict holding the match:
             register_form_id, applicant_id, applicant_reference_id,
             previous_form_id, previous_offer_id,
             matched_school_id, matched_school_reference_id,
@@ -193,7 +197,7 @@ def find_school_for_register_form(
         result['match_method'] = 'NO_PREVIOUS_FORM'
         return result
 
-    # Fetch school choices from the linked apply form (with caching)
+    # Fetch the linked apply form's school choices, once per apply form
     if previous_form_id not in apply_form_cache:
         apply_form_cache[previous_form_id] = fetch_school_choices(
             client, previous_form_id
@@ -205,7 +209,7 @@ def find_school_for_register_form(
         result['match_method'] = 'NO_SCHOOL_CHOICES'
         return result
 
-    # Collect all schools for reference
+    # List every school on the form, so the row shows the whole picture
     all_schools = []
     for sc in school_choices:
         school = sc.get('school', {})
@@ -213,7 +217,7 @@ def find_school_for_register_form(
 
     result['all_schools'] = '; '.join(all_schools)
 
-    # Strategy 1: Find school with an accepted offer
+    # First try: the school with an accepted offer
     for sc in school_choices:
         for offer in sc.get('offers', []):
             if offer.get('status') == 'Accepted':
@@ -223,8 +227,8 @@ def find_school_for_register_form(
                 result['match_method'] = 'ACCEPTED_OFFER'
                 return result
 
-    # Strategy 2: If previous_offer_id is set, find the school that had that offer
-    # (even if the offer is now revoked/declined)
+    # Second try: the school that held the offer named in previous_offer_id,
+    # even if that offer has since been revoked or declined
     if previous_offer_id:
         for sc in school_choices:
             for offer in sc.get('offers', []):
@@ -237,7 +241,7 @@ def find_school_for_register_form(
                     )
                     return result
 
-    # Strategy 3: Only one school on the form — it's the match
+    # Third try: only one school on the form, so that is the one
     if len(school_choices) == 1:
         school = school_choices[0].get('school', {})
         result['matched_school_id'] = school.get('id', '')
@@ -245,7 +249,7 @@ def find_school_for_register_form(
         result['match_method'] = 'SINGLE_SCHOOL'
         return result
 
-    # Multiple schools, no accepted offer, can't determine automatically
+    # Several schools and no accepted offer, so a person has to decide
     result['match_method'] = 'AMBIGUOUS (multiple schools, no accepted offer)'
     return result
 
@@ -270,10 +274,13 @@ CSV_FIELDNAMES = [
 
 def open_csv_writer(filename: str | None = None):
     """
-    Open a CSV file for incremental writing.
+    Open a CSV file and write its header row.
+
+    The caller writes one row at a time, so results survive a crash partway
+    through a long run.
 
     Args:
-        filename: Output filename (defaults to timestamped name)
+        filename: Name for the file (defaults to a timestamped name)
 
     Returns:
         Tuple of (file handle, csv.DictWriter, filename)
@@ -294,38 +301,44 @@ def open_csv_writer(filename: str | None = None):
 
 
 def main():
-    """
-    Main execution:
-    1. Load config and authenticate
-    2. Fetch all register forms for the enrollment period
-    3. Fetch form details (to get previous_form_id)
-    4. Follow previous_form_id to the apply form's school_choices
-    5. Export a CSV mapping each register form to its school
-    """
+    """Log in, follow every register form to its apply form, and write the CSV."""
+    parser = argparse.ArgumentParser(
+        description='Map every register form to the school on its linked apply form'
+    )
+    parser.add_argument(
+        '--profile', default=None, help='Named credential set to use (see README)'
+    )
+    args = parser.parse_args()
+
     print('=' * 70)
     print('FIND SCHOOL FOR REGISTER FORMS')
     print('=' * 70)
 
-    # Load config
-    config_path = Path('config.json')
-    if not config_path.exists():
-        print(
-            'Error: config.json not found. Copy config.example.json and fill in credentials.'
-        )
+    # Read the settings. Credentials come from create_client() below.
+    # The settings and the credentials always come from the same client
+    try:
+        config = load_settings(args.profile)
+    except ValueError as e:
+        print(e)
         sys.exit(1)
-
-    with open(config_path, encoding='utf-8') as f:
-        config = json.load(f)
 
     enrollment_period_id = config.get('enrollment_period_id')
     if not enrollment_period_id:
-        print("Error: 'enrollment_period_id' is required in config.json")
+        print("Error: this recipe needs an 'enrollment_period_id' setting.")
+        print('Copy config.example.json to config.json and fill it in.')
+        print('That file holds settings only, never credentials.')
         sys.exit(1)
 
     form_template_keys = config.get('form_template_keys')
 
-    # Authenticate
-    client = create_client_from_config('config.json')
+    # Log in
+    try:
+        client = create_client(profile=args.profile)
+    except ValueError as e:
+        print(e)
+        sys.exit(1)
+
+    print(f'Credentials: {client.credential_source}')
     client.authenticate()
 
     # Step 1: Fetch forms for the enrollment period
@@ -339,13 +352,13 @@ def main():
         print('No forms found. Check enrollment_period_id.')
         sys.exit(0)
 
-    # Step 2: Fetch detail for each form to get previous_form_id.
-    # Forms with previous_form_id set are register forms.
-    # Write results to CSV incrementally so partial results survive crashes.
+    # Step 2: Fetch each form in full to read its previous_form_id. A form that
+    # has one is a register form. Rows go to the CSV as they are found, so a
+    # long run that stops early still leaves usable results.
     csv_file, csv_writer, filename = open_csv_writer()
     print(f'\nWriting results to: {filename}')
     print('Fetching form details to identify register forms...')
-    apply_form_cache = {}  # Reuse school_choices across register forms
+    apply_form_cache = {}  # One apply form can serve several register forms
     register_count = 0
     methods = {}
 
@@ -359,7 +372,7 @@ def main():
             if not detail:
                 continue
 
-            # Only process forms that have previous_form_id (register forms)
+            # A form without previous_form_id is not a register form
             if not detail.get('previous_form_id'):
                 continue
 
@@ -368,7 +381,6 @@ def main():
             csv_writer.writerow(result)
             csv_file.flush()
 
-            # Track match methods for summary
             method = result['match_method']
             if method.startswith('PREVIOUS_OFFER'):
                 method = 'PREVIOUS_OFFER (revoked/declined)'
@@ -396,7 +408,7 @@ def main():
     print(f'  Total unmatched: {register_count - matched}')
 
     print(f'\n{"=" * 70}')
-    print('Done!')
+    print('Done.')
     print(f'Results saved to: {filename}')
     print(f'{"=" * 70}')
 

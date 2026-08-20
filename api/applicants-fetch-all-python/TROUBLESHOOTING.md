@@ -2,25 +2,64 @@
 
 Common issues and solutions for the Fetch All Applicants script.
 
-## "Configuration file not found"
+## "No credentials found"
 
-**Problem:** `config.json` doesn't exist
+**Problem:** No place the script looked held both a client id and a client secret. The error message lists both options.
 
-**Solution:**
+**Solution:** set up any one of them.
+
 ```bash
-cp config.example.json config.json
-# Edit config.json with your credentials
+# OS keychain (recommended on a laptop)
+python ../../shared/python/setup_credentials.py
+
+# Environment variables (recommended for servers, CI, and containers)
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+
 ```
+
+Set both the id and the secret. If only one of the two is set, the script stops and says which one is missing.
+
+## Keychain is locked or unavailable
+
+**Problem:** The script cannot reach the keychain, so it cannot see your stored credentials. Common causes:
+
+1. Dependencies not installed, run `pip install -r requirements.txt`
+2. The keychain is locked and no one is there to unlock it
+3. The script is running over SSH, in a container, or in CI, where there is no desktop session to unlock a keychain
+4. Linux without a Secret Service program such as `gnome-keyring` or `kwallet`
+
+**Solution:** on a laptop, unlock the keychain and run again. Anywhere without a desktop login, use environment variables instead:
+
+```bash
+export AVELA_CLIENT_ID=your_client_id
+export AVELA_CLIENT_SECRET=your_client_secret
+export AVELA_ENVIRONMENT=prod
+```
+
+The script checks environment variables before the keychain, so they work even when the keychain holds old values.
+
+## Profile has nothing stored
+
+**Problem:** You ran with `--profile district-a` (or `AVELA_PROFILE=district-a`) and no credentials were found for it.
+
+**Solutions:**
+1. List what is actually stored: `python ../../shared/python/setup_credentials.py --list`
+2. Store the profile: `python ../../shared/python/setup_credentials.py --profile district-a`
+3. Check the spelling. Profile names become lowercase, and anything that is not a letter or a number turns into `-`, so `District A` becomes `district-a` and its environment variables are `AVELA_DISTRICT_A_CLIENT_ID` and `AVELA_DISTRICT_A_CLIENT_SECRET`
+4. If the profile's credentials come from environment variables, use the names with the profile in them (`AVELA_DISTRICT_A_CLIENT_ID`, not `AVELA_CLIENT_ID`). A profile never reads the plain names, so a mistyped profile cannot run as the wrong client
 
 ## "Authentication failed"
 
 **Problem:** Invalid credentials or wrong environment
 
 **Solutions:**
-1. Verify `client_id` and `client_secret` in `config.json`
-2. Confirm you're using the correct environment (usually `prod`)
-3. Check for extra spaces or quotes in credentials
-4. Contact your Avela administrator to verify credentials are active
+1. Check where the credentials came from. The script reports it as `client.credential_source`, for example `keychain (avela-api:district-a)`, so you can confirm an older source is not winning
+2. Verify the client id and secret in whichever source you set up
+3. Confirm you're using the correct environment (usually `prod`)
+4. Check for extra spaces or quotes in credentials
+5. Contact your Avela administrator to verify credentials are active
 
 ## "No applicants found"
 
@@ -33,7 +72,7 @@ cp config.example.json config.json
 
 **Solution:**
 - Try option [1] to fetch all applicants (no filter)
-- Verify the correct environment in config
+- Verify the environment stored in whichever credential source you configured
 - Check permissions with your administrator
 
 ## Module not found errors
@@ -101,4 +140,4 @@ pip install -r requirements.txt
 ```bash
 xcode-select --install
 ```
-A dialog will appear - click "Install" and wait for completion. Then retry creating your virtual environment.
+A dialog appears. Click "Install" and wait for it to finish, then create your virtual environment again.

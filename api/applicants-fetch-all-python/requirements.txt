@@ -10,3 +10,10 @@
 
 # HTTP library for making API requests
 requests>=2.31.0
+
+# Shared Avela client module (credential resolution, rate limiting, retries)
+-e ../../shared/python
+
+# Stores your credentials in the OS keychain, encrypted at rest
+keyring>=24.0.0
+
