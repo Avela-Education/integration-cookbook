@@ -2,11 +2,17 @@
 
 ## Overview
 
-Find which school a registration form belongs to, **even when the accepted offer has been revoked or deleted**. Reporting teams use this to match every register form to a school.
+Find which school a registration form belongs to, whatever has since happened to the offer that created it. Reporting teams use this to match every register form to a school.
 
-## The Problem
+## Why not just use `previous_offer_id`?
 
-Register forms are created when a family accepts an offer. The `previous_offer_id` field on the register form points to that offer. However, if the offer is later revoked or declined with no replacement, the offer may no longer appear in the API, leaving the register form with no obvious link to a school.
+Register forms are created when a family accepts an offer, and the register form's `previous_offer_id` points to that offer. It is tempting to resolve the school by following it, but it is not a dependable path:
+
+- **The offer's status changes.** An offer that was accepted can later be revoked or declined. It still appears in `/school_choices`, carrying its current status, so a query that joins only on accepted offers silently drops the register form.
+- **A deleted offer disappears.** `/school_choices` omits deleted offers, so `previous_offer_id` can point at something the API will not return at all.
+- **The pointer itself can be rewritten.** It is a live reference to current state, not a permanent record of how the register form came to exist.
+
+`previous_form_id` has none of these properties.
 
 ## The Solution
 
@@ -74,7 +80,7 @@ Fill in the settings. The template holds no credentials, so the file stays safe 
 ```json
 {
   "enrollment_period_id": "your_enrollment_period_id",
-  "form_template_keys": ["register-for-arizona-schools", "register-for-texas-schools"]
+  "form_template_keys": ["your-register-form-template-key", "another-register-form-template-key"]
 }
 ```
 
@@ -129,10 +135,10 @@ Authenticating with Avela API (prod)...
 Authentication successful! Token expires in 24 hours.
 
 Fetching forms for enrollment period abc123...
-Filtering by template keys: ['register-for-arizona-schools', 'register-for-texas-schools']
-  Template: register-for-arizona-schools
+Filtering by template keys: ['your-register-form-template-key', 'another-register-form-template-key']
+  Template: your-register-form-template-key
     Fetching page 1 (offset: 0)... 500 forms
-  Template: register-for-texas-schools
+  Template: another-register-form-template-key
     Fetching page 1 (offset: 0)... 38 forms
 Total forms fetched: 538
 
@@ -149,6 +155,7 @@ RESULTS SUMMARY
   ACCEPTED_OFFER                                       229
   PREVIOUS_OFFER (revoked/declined)                    220
   SINGLE_SCHOOL                                         48
+  AMBIGUOUS (multiple schools, no accepted offer)       38
   NO_SCHOOL_CHOICES                                      3
 
   Total matched:   497
@@ -182,12 +189,18 @@ Exported 538 rows to: register_form_schools_20260401_120000.csv
 | `AMBIGUOUS`                 | Multiple schools and no accepted offer, so review manually                |
 | `NO_SCHOOL_CHOICES`         | Apply form has no school choices                                          |
 
+`ACCEPTED_OFFER` is checked before `previous_offer_id`, so if the family accepted an
+offer at a different school after this register form was created, the row reports the
+school they accepted most recently rather than the one the register form was opened
+for. Compare `previous_offer_id` against `matched_school_id` in the CSV when you need
+to tell those apart.
+
 ## Key Concepts
 
 ### Why `previous_form_id` is more reliable than `previous_offer_id`
 
 - `previous_form_id` links to the **apply form**, and that link never changes
-- `previous_offer_id` links to a **specific offer**, so if that offer is revoked or deleted the link goes nowhere
+- `previous_offer_id` links to a **specific offer**, whose status can change and which disappears from the API if it is deleted
 - The school choices on the apply form stay put whatever happens to the offer
 
 ### Rate Limiting

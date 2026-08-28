@@ -1,7 +1,7 @@
 {
   "enrollment_period_id": "your_enrollment_period_id_here",
   "form_template_keys": [
-    "register-for-arizona-schools",
-    "register-for-texas-schools"
+    "your-register-form-template-key",
+    "another-register-form-template-key"
   ]
 }
