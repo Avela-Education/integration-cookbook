@@ -18,6 +18,16 @@ dev = [
     "ruff>=0.9.0",
 ]
 
+[tool.uv]
+# uv 0.13.4 drops the compromised emSign ECC Root CA - G3 from its bundled
+# roots (GHSA-hq85-5cpj-mr62).
+required-version = ">=0.13.4"
+# Supply-chain hardening: ignore package releases newer than 7 days
+# to give time for poisoned releases to be caught and yanked.
+exclude-newer = "1 week"
+# Security exception to the cooldown (certifi emSign removal).
+exclude-newer-package = { certifi = "2026-10-20T03:00:00Z" }
+
 [tool.ruff]
 line-length = 90
 indent-width = 4
